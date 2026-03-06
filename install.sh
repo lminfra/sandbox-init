@@ -4,6 +4,8 @@ set -euo pipefail
 INSTALL_DIR="${HOME}/.local/bin"
 SCRIPT_NAME="sandbox-init"
 SYMLINK_NAME="sbinit"
+UPSTREAM_BASE="https://raw.githubusercontent.com/anthropics/claude-code/main/.devcontainer"
+DEVCONTAINER_FILES=("devcontainer.json" "Dockerfile" "init-firewall.sh")
 
 die() {
   echo "error: $1" >&2
@@ -13,6 +15,40 @@ die() {
 info() {
   echo "=> $1"
 }
+
+# Parse flags
+USE_UPSTREAM=false
+DO_UNINSTALL=false
+for arg in "$@"; do
+  case "$arg" in
+    --upstream) USE_UPSTREAM=true ;;
+    --uninstall) DO_UNINSTALL=true ;;
+    *) die "Unknown option: $arg (supported: --upstream, --uninstall)" ;;
+  esac
+done
+
+# Handle uninstall
+if [[ "$DO_UNINSTALL" == true ]]; then
+  removed=0
+  for target in "${INSTALL_DIR}/${SCRIPT_NAME}" "${INSTALL_DIR}/${SYMLINK_NAME}"; do
+    if [[ -e "$target" || -L "$target" ]]; then
+      rm -f "$target"
+      info "Removed $target"
+      removed=$((removed + 1))
+    fi
+  done
+  if [[ -d "${INSTALL_DIR}/devcontainer" ]]; then
+    rm -rf "${INSTALL_DIR}/devcontainer"
+    info "Removed ${INSTALL_DIR}/devcontainer/"
+    removed=$((removed + 1))
+  fi
+  if [[ "$removed" -eq 0 ]]; then
+    info "Nothing to remove (already uninstalled)"
+  else
+    info "Uninstall complete"
+  fi
+  exit 0
+fi
 
 # Determine source: local file or remote
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -41,10 +77,31 @@ mkdir -p "$INSTALL_DIR"
 cp "$SOURCE" "${INSTALL_DIR}/${SCRIPT_NAME}"
 chmod +x "${INSTALL_DIR}/${SCRIPT_NAME}"
 
-# Install bundled devcontainer files if available (enables --local flag)
-if [[ -d "${SCRIPT_DIR}/${BUNDLED_DIR_NAME}" ]]; then
-  cp -r "${SCRIPT_DIR}/${BUNDLED_DIR_NAME}" "${INSTALL_DIR}/${BUNDLED_DIR_NAME}"
-  info "Installed bundled devcontainer files (use --local to skip network fetch)"
+# Install devcontainer files
+BUNDLED_DEST="${INSTALL_DIR}/${BUNDLED_DIR_NAME}"
+if [[ "$USE_UPSTREAM" == true ]]; then
+  info "Downloading devcontainer files from upstream (anthropics/claude-code)..."
+  mkdir -p "$BUNDLED_DEST"
+  for f in "${DEVCONTAINER_FILES[@]}"; do
+    if ! curl -fsSL -o "${BUNDLED_DEST}/${f}" "${UPSTREAM_BASE}/${f}"; then
+      rm -rf "$BUNDLED_DEST"
+      die "Failed to download ${f}"
+    fi
+  done
+  chmod +x "${BUNDLED_DEST}/init-firewall.sh"
+  info "Installed upstream devcontainer files"
+elif [[ -d "${SCRIPT_DIR}/${BUNDLED_DIR_NAME}" ]]; then
+  cp -r "${SCRIPT_DIR}/${BUNDLED_DIR_NAME}" "$BUNDLED_DEST"
+  info "Installed bundled devcontainer files (modified version)"
+  echo ""
+  echo "  Note: These files include modifications over the upstream claude-code version:"
+  echo "    - Cursor domains added to the firewall whitelist"
+  echo "    - DNS resolution failures are non-fatal (warns instead of aborting)"
+  echo "  To use the official anthropics/claude-code files instead, re-run:"
+  echo "    ./install.sh --upstream"
+  echo ""
+else
+  die "Bundled devcontainer files not found at ${SCRIPT_DIR}/${BUNDLED_DIR_NAME} (are you running from the repo?)"
 fi
 
 # Create symlink

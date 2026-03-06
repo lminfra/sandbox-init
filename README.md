@@ -122,7 +122,7 @@ After running `sbinit`, you can edit the fetched files to customize your setup. 
 ## Uninstall
 
 ```bash
-rm ~/.local/bin/sandbox-init ~/.local/bin/sbinit
+./install.sh --uninstall
 ```
 
 ## Acknowledgments
