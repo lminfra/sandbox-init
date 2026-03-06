@@ -196,7 +196,7 @@ test_repo_flag() {
   mkdir -p "$target"
 
   local output
-  output=$("$SANDBOX_INIT" --repo myorg/myrepo --dry-run "$target" 2>&1)
+  output=$("$SANDBOX_INIT" --remote --repo myorg/myrepo --dry-run "$target" 2>&1)
 
   if echo "$output" | grep -q "myorg/myrepo"; then
     pass "$name"
@@ -214,7 +214,7 @@ test_failed_fetch_cleanup() {
   mkdir -p "$target"
 
   # Use a bogus repo to trigger fetch failure
-  if "$SANDBOX_INIT" --repo "bogus/nonexistent-repo-$$" "$target" >/dev/null 2>&1; then
+  if "$SANDBOX_INIT" --remote --repo "bogus/nonexistent-repo-$$" "$target" >/dev/null 2>&1; then
     fail "$name" "should have failed but succeeded"
     teardown
     return
@@ -229,13 +229,13 @@ test_failed_fetch_cleanup() {
   teardown
 }
 
-test_local_flag() {
-  local name="--local copies bundled files without network"
+test_local_default() {
+  local name="defaults to bundled files (no --remote needed)"
   setup
   local target="$TEST_DIR/project"
   mkdir -p "$target"
 
-  if ! "$SANDBOX_INIT" --local "$target" >/dev/null 2>&1; then
+  if ! "$SANDBOX_INIT" "$target" >/dev/null 2>&1; then
     fail "$name" "command failed"
     teardown
     return
@@ -258,13 +258,13 @@ test_local_flag() {
 }
 
 test_local_dry_run() {
-  local name="--local --dry-run shows copy instead of fetch"
+  local name="dry-run shows copy when using bundled files"
   setup
   local target="$TEST_DIR/project"
   mkdir -p "$target"
 
   local output
-  output=$("$SANDBOX_INIT" --local --dry-run "$target" 2>&1) || { fail "$name" "non-zero exit"; teardown; return; }
+  output=$("$SANDBOX_INIT" --dry-run "$target" 2>&1) || { fail "$name" "non-zero exit"; teardown; return; }
 
   if echo "$output" | grep -q "Would copy"; then
     pass "$name"
@@ -299,7 +299,7 @@ test_nonexistent_target
 test_dry_run
 test_repo_flag
 test_failed_fetch_cleanup
-test_local_flag
+test_local_default
 test_local_dry_run
 test_unknown_option
 

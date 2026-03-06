@@ -37,8 +37,8 @@ sbinit --force
 # Preview what would happen
 sbinit --dry-run
 
-# Use bundled files (no network fetch, requires repo clone install)
-sbinit --local
+# Fetch from GitHub instead of using bundled files
+sbinit --remote
 
 # Use a fork or custom repo
 sbinit --repo myorg/my-claude-config --branch develop
@@ -81,7 +81,7 @@ Running `sbinit` creates a `.devcontainer/` directory with three files:
 | `TARGET_DIR` | Directory to set up (default: current directory) |
 | `--repo OWNER/REPO` | Override source repo (default: `anthropics/claude-code`) |
 | `--branch BRANCH` | Override source branch (default: `main`) |
-| `--local` | Use bundled devcontainer files instead of fetching from GitHub |
+| `--remote` | Fetch devcontainer files from GitHub instead of using bundled files |
 | `-f`, `--force` | Overwrite existing `.devcontainer/` (backs up old one first) |
 | `--dry-run` | Show what would be done, change nothing |
 | `--update` | Self-update the tool |

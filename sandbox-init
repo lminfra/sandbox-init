@@ -43,7 +43,7 @@ Arguments:
 Options:
   --repo OWNER/REPO   Source repo (default: $DEFAULT_REPO)
   --branch BRANCH     Source branch (default: $DEFAULT_BRANCH)
-  --local             Use bundled devcontainer files instead of fetching
+  --remote            Fetch from GitHub instead of using bundled files
   -f, --force         Overwrite existing .devcontainer/ (backs up first)
   --dry-run           Show what would be done, change nothing
   --update            Self-update sandbox-init
@@ -107,7 +107,7 @@ REPO="$DEFAULT_REPO"
 BRANCH="$DEFAULT_BRANCH"
 FORCE=false
 DRY_RUN=false
-USE_LOCAL=false
+USE_REMOTE=false
 TARGET=""
 
 while [[ $# -gt 0 ]]; do
@@ -130,8 +130,8 @@ while [[ $# -gt 0 ]]; do
       BRANCH="$2"
       shift 2
       ;;
-    --local)
-      USE_LOCAL=true
+    --remote)
+      USE_REMOTE=true
       shift
       ;;
     -f|--force)
@@ -172,9 +172,14 @@ fi
 DEVCONTAINER_DIR="$TARGET_DIR/.devcontainer"
 BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/.devcontainer"
 
-# Validate --local source exists
-if [[ "$USE_LOCAL" == true ]] && [[ ! -d "$BUNDLED_DIR" ]]; then
-  die "Bundled devcontainer files not found at $BUNDLED_DIR (are you running from the repo?)"
+# Decide source: use bundled files by default, fetch remotely if --remote or no bundled files
+if [[ "$USE_REMOTE" == true ]]; then
+  USE_LOCAL=false
+elif [[ -d "$BUNDLED_DIR" ]]; then
+  USE_LOCAL=true
+else
+  USE_LOCAL=false
+  info "No bundled files found, fetching from GitHub..."
 fi
 
 # Handle existing .devcontainer/
