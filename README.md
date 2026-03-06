@@ -7,7 +7,7 @@ Fetches the official devcontainer configuration from [anthropics/claude-code](ht
 ## Prerequisites
 
 - [Docker](https://www.docker.com/) installed and running
-- [VS Code](https://code.visualstudio.com/) or [Cursor](https://cursor.com/) with the [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) extension
+- [VS Code](https://code.visualstudio.com/) or [Cursor](https://cursor.com/) with the [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) extension, **or** the [Dev Containers CLI](https://github.com/devcontainers/cli) for terminal-only usage
 - `curl`
 
 ## Install
@@ -87,6 +87,29 @@ Running `sbinit` creates a `.devcontainer/` directory with three files:
 | `--update` | Self-update the tool |
 | `-v`, `--version` | Print version |
 | `-h`, `--help` | Print usage |
+
+## Terminal-only workflow
+
+You can use the container without an IDE via the [Dev Containers CLI](https://github.com/devcontainers/cli):
+
+```bash
+# Install the CLI (one-time)
+npm install -g @devcontainers/cli
+
+# Start the container
+cd /path/to/my-project
+devcontainer up --workspace-folder .
+
+# Open a shell inside it
+devcontainer exec --workspace-folder . zsh
+```
+
+If the container is already running (e.g. started from an IDE earlier), you can connect directly with Docker:
+
+```bash
+docker ps                          # find the container name/id
+docker exec -it <container> zsh
+```
 
 ## Customization
 

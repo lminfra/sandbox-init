@@ -72,7 +72,7 @@ fetch_file() {
 self_update() {
   local install_url="https://raw.githubusercontent.com/${DEFAULT_REPO}/${DEFAULT_BRANCH}/.devcontainer/sandbox-init"
   local self_path
-  self_path="$(realpath "$0")"
+  self_path="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 
   info "Updating sandbox-init..."
   local tmp
@@ -163,7 +163,7 @@ done
 if [[ -z "$TARGET" ]]; then
   TARGET_DIR="$(pwd)"
 else
-  TARGET_DIR="$(realpath -m "$TARGET")"
+  TARGET_DIR="$(cd "$TARGET" 2>/dev/null && pwd)" || die "Target directory does not exist: $TARGET"
 fi
 
 # Validate target
