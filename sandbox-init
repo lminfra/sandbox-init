@@ -1,0 +1,250 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+VERSION="1.0.0"
+DEFAULT_REPO="anthropics/claude-code"
+DEFAULT_BRANCH="main"
+FILES=("devcontainer.json" "Dockerfile" "init-firewall.sh")
+
+# Resolve the bundled devcontainer directory (relative to this script)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BUNDLED_DIR="${SCRIPT_DIR}/devcontainer"
+
+# State for cleanup
+CREATED_DIR=""
+BACKUP_DIR=""
+TARGET_DIR=""
+
+# --- Utility functions ---
+
+die() {
+  echo "error: $1" >&2
+  exit 1
+}
+
+info() {
+  echo "=> $1"
+}
+
+warn() {
+  echo "warning: $1" >&2
+}
+
+usage() {
+  cat <<EOF
+sandbox-init $VERSION — Set up a Claude Code devcontainer
+
+Usage:
+  sandbox-init [OPTIONS] [TARGET_DIR]
+
+Arguments:
+  TARGET_DIR    Directory to set up (default: current directory)
+
+Options:
+  --repo OWNER/REPO   Source repo (default: $DEFAULT_REPO)
+  --branch BRANCH     Source branch (default: $DEFAULT_BRANCH)
+  --local             Use bundled devcontainer files instead of fetching
+  -f, --force         Overwrite existing .devcontainer/ (backs up first)
+  --dry-run           Show what would be done, change nothing
+  --update            Self-update sandbox-init
+  -v, --version       Print version
+  -h, --help          Print this help
+EOF
+}
+
+version() {
+  echo "sandbox-init $VERSION"
+}
+
+fetch_file() {
+  local url="$1"
+  local dest="$2"
+  local http_code
+
+  http_code=$(curl -fsSL -w "%{http_code}" -o "$dest" "$url" 2>/dev/null) || true
+
+  if [[ ! -f "$dest" ]] || [[ ! -s "$dest" ]] || [[ "$http_code" -lt 200 ]] || [[ "$http_code" -ge 300 ]]; then
+    rm -f "$dest"
+    return 1
+  fi
+}
+
+self_update() {
+  local install_url="https://raw.githubusercontent.com/${DEFAULT_REPO}/${DEFAULT_BRANCH}/.devcontainer/sandbox-init"
+  local self_path
+  self_path="$(realpath "$0")"
+
+  info "Updating sandbox-init..."
+  local tmp
+  tmp="$(mktemp)"
+  if curl -fsSL -o "$tmp" "$install_url" 2>/dev/null; then
+    chmod +x "$tmp"
+    mv "$tmp" "$self_path"
+    info "Updated successfully."
+  else
+    rm -f "$tmp"
+    die "Failed to download update."
+  fi
+}
+
+cleanup() {
+  local exit_code=$?
+  if [[ $exit_code -ne 0 ]] && [[ -n "$CREATED_DIR" ]] && [[ -d "$CREATED_DIR" ]]; then
+    rm -rf "$CREATED_DIR"
+    warn "Cleaned up partial .devcontainer/"
+    if [[ -n "$BACKUP_DIR" ]] && [[ -d "$BACKUP_DIR" ]]; then
+      mv "$BACKUP_DIR" "$CREATED_DIR"
+      info "Restored backup from $(basename "$BACKUP_DIR")"
+    fi
+  fi
+}
+
+trap cleanup EXIT
+
+# --- Argument parsing ---
+
+REPO="$DEFAULT_REPO"
+BRANCH="$DEFAULT_BRANCH"
+FORCE=false
+DRY_RUN=false
+USE_LOCAL=false
+TARGET=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    -v|--version)
+      version
+      exit 0
+      ;;
+    --repo)
+      [[ -n "${2:-}" ]] || die "--repo requires an argument"
+      REPO="$2"
+      shift 2
+      ;;
+    --branch)
+      [[ -n "${2:-}" ]] || die "--branch requires an argument"
+      BRANCH="$2"
+      shift 2
+      ;;
+    --local)
+      USE_LOCAL=true
+      shift
+      ;;
+    -f|--force)
+      FORCE=true
+      shift
+      ;;
+    --dry-run)
+      DRY_RUN=true
+      shift
+      ;;
+    --update)
+      self_update
+      exit 0
+      ;;
+    -*)
+      die "Unknown option: $1 (see --help)"
+      ;;
+    *)
+      [[ -z "$TARGET" ]] || die "Unexpected argument: $1"
+      TARGET="$1"
+      shift
+      ;;
+  esac
+done
+
+# --- Main logic ---
+
+# Resolve target directory
+if [[ -z "$TARGET" ]]; then
+  TARGET_DIR="$(pwd)"
+else
+  TARGET_DIR="$(realpath -m "$TARGET")"
+fi
+
+# Validate target
+[[ -d "$TARGET_DIR" ]] || die "Target directory does not exist: $TARGET_DIR"
+
+DEVCONTAINER_DIR="$TARGET_DIR/.devcontainer"
+BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/.devcontainer"
+
+# Validate --local source exists
+if [[ "$USE_LOCAL" == true ]] && [[ ! -d "$BUNDLED_DIR" ]]; then
+  die "Bundled devcontainer files not found at $BUNDLED_DIR (are you running from the repo?)"
+fi
+
+# Handle existing .devcontainer/
+if [[ -d "$DEVCONTAINER_DIR" ]]; then
+  if [[ "$FORCE" == true ]]; then
+    BACKUP_DIR="${DEVCONTAINER_DIR}.bak.$(date +%s)"
+    if [[ "$DRY_RUN" == true ]]; then
+      info "[dry-run] Would back up $DEVCONTAINER_DIR to $BACKUP_DIR"
+    else
+      mv "$DEVCONTAINER_DIR" "$BACKUP_DIR"
+      info "Backed up existing .devcontainer/ to $(basename "$BACKUP_DIR")"
+    fi
+  else
+    die ".devcontainer/ already exists in $TARGET_DIR (use --force to overwrite)"
+  fi
+fi
+
+# Dry-run: show plan and exit
+if [[ "$DRY_RUN" == true ]]; then
+  info "[dry-run] Would create $DEVCONTAINER_DIR/"
+  for file in "${FILES[@]}"; do
+    if [[ "$USE_LOCAL" == true ]]; then
+      info "[dry-run] Would copy $BUNDLED_DIR/$file"
+    else
+      info "[dry-run] Would fetch $BASE_URL/$file"
+    fi
+  done
+  info "[dry-run] Would chmod +x init-firewall.sh"
+  info "[dry-run] No changes made."
+  exit 0
+fi
+
+# Create .devcontainer/
+mkdir -p "$DEVCONTAINER_DIR"
+CREATED_DIR="$DEVCONTAINER_DIR"
+
+# Copy or fetch files
+if [[ "$USE_LOCAL" == true ]]; then
+  for file in "${FILES[@]}"; do
+    info "Copying $file (local)..."
+    if [[ ! -f "$BUNDLED_DIR/$file" ]]; then
+      die "Missing bundled file: $BUNDLED_DIR/$file"
+    fi
+    cp "$BUNDLED_DIR/$file" "$DEVCONTAINER_DIR/$file"
+  done
+else
+  for file in "${FILES[@]}"; do
+    info "Fetching $file..."
+    if ! fetch_file "$BASE_URL/$file" "$DEVCONTAINER_DIR/$file"; then
+      die "Failed to fetch $file from $BASE_URL/$file"
+    fi
+  done
+fi
+
+# Make firewall script executable
+chmod +x "$DEVCONTAINER_DIR/init-firewall.sh"
+
+# Clear cleanup trap state (success)
+CREATED_DIR=""
+
+# Success message
+echo ""
+info "Claude Code devcontainer set up in $DEVCONTAINER_DIR/"
+echo ""
+echo "Files created:"
+for file in "${FILES[@]}"; do
+  echo "  .devcontainer/$file"
+done
+echo ""
+echo "Next steps:"
+echo "  1. Open $TARGET_DIR in VS Code or Cursor"
+echo "  2. Run \"Dev Containers: Reopen in Container\" from the command palette"
+echo "  3. Claude Code is ready inside the container"
