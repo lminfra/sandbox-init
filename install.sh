@@ -5,7 +5,7 @@ INSTALL_DIR="${HOME}/.local/bin"
 SCRIPT_NAME="sandbox-init"
 SYMLINK_NAME="sbinit"
 UPSTREAM_BASE="https://raw.githubusercontent.com/anthropics/claude-code/main/.devcontainer"
-DEVCONTAINER_FILES=("devcontainer.json" "Dockerfile" "init-firewall.sh")
+DEVCONTAINER_FILES=("devcontainer.json" "Dockerfile" "init-firewall.sh" "sbrun")
 
 die() {
   echo "error: $1" >&2
@@ -74,25 +74,34 @@ fi
 mkdir -p "$INSTALL_DIR"
 
 # Install the script
+info "Copying ${SCRIPT_NAME} -> ${INSTALL_DIR}/${SCRIPT_NAME}"
 cp "$SOURCE" "${INSTALL_DIR}/${SCRIPT_NAME}"
 chmod +x "${INSTALL_DIR}/${SCRIPT_NAME}"
 
 # Install devcontainer files
 BUNDLED_DEST="${INSTALL_DIR}/${BUNDLED_DIR_NAME}"
+if [[ -d "$BUNDLED_DEST" ]]; then
+  info "Removing old ${BUNDLED_DEST}/"
+  rm -rf "$BUNDLED_DEST"
+fi
+
 if [[ "$USE_UPSTREAM" == true ]]; then
   info "Downloading devcontainer files from upstream (anthropics/claude-code)..."
   mkdir -p "$BUNDLED_DEST"
   for f in "${DEVCONTAINER_FILES[@]}"; do
+    info "  Fetching ${f} -> ${BUNDLED_DEST}/${f}"
     if ! curl -fsSL -o "${BUNDLED_DEST}/${f}" "${UPSTREAM_BASE}/${f}"; then
       rm -rf "$BUNDLED_DEST"
       die "Failed to download ${f}"
     fi
   done
   chmod +x "${BUNDLED_DEST}/init-firewall.sh"
-  info "Installed upstream devcontainer files"
 elif [[ -d "${SCRIPT_DIR}/${BUNDLED_DIR_NAME}" ]]; then
+  info "Copying bundled devcontainer files:"
   cp -r "${SCRIPT_DIR}/${BUNDLED_DIR_NAME}" "$BUNDLED_DEST"
-  info "Installed bundled devcontainer files (modified version)"
+  for f in "${DEVCONTAINER_FILES[@]}"; do
+    info "  ${f} -> ${BUNDLED_DEST}/${f}"
+  done
   echo ""
   echo "  Note: These files include modifications over the upstream claude-code version:"
   echo "    - Cursor domains added to the firewall whitelist"
@@ -105,15 +114,13 @@ else
 fi
 
 # Create symlink
+info "Creating symlink ${SYMLINK_NAME} -> ${SCRIPT_NAME} in ${INSTALL_DIR}/"
 ln -sf "${INSTALL_DIR}/${SCRIPT_NAME}" "${INSTALL_DIR}/${SYMLINK_NAME}"
 
 # Cleanup temp file if remote install
 if [[ "$CLEANUP_SOURCE" == true ]]; then
   rm -f "$SOURCE"
 fi
-
-info "Installed ${SCRIPT_NAME} to ${INSTALL_DIR}/${SCRIPT_NAME}"
-info "Created symlink ${SYMLINK_NAME} -> ${SCRIPT_NAME}"
 
 # Check PATH
 if [[ ":${PATH}:" != *":${INSTALL_DIR}:"* ]]; then
@@ -125,4 +132,4 @@ if [[ ":${PATH}:" != *":${INSTALL_DIR}:"* ]]; then
   echo ""
 fi
 
-info "Done! Run 'sandbox-init --help' to get started."
+info "Done! Run 'sbinit --help' to get started."

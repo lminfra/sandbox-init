@@ -4,7 +4,7 @@ set -euo pipefail
 VERSION="1.0.0"
 DEFAULT_REPO="anthropics/claude-code"
 DEFAULT_BRANCH="main"
-FILES=("devcontainer.json" "Dockerfile" "init-firewall.sh")
+FILES=("devcontainer.json" "Dockerfile" "init-firewall.sh" "sbrun")
 
 # Resolve the bundled devcontainer directory (relative to this script)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
