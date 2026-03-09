@@ -284,6 +284,57 @@ test_unknown_option() {
   fi
 }
 
+test_update_bad_repo() {
+  local name="--update with bad repo fails and leaves bundled files intact"
+  setup
+
+  # Copy sandbox-init and its bundled dir to an isolated location
+  local install_dir="$TEST_DIR/install"
+  mkdir -p "$install_dir/devcontainer"
+  cp "$SANDBOX_INIT" "$install_dir/sandbox-init"
+  chmod +x "$install_dir/sandbox-init"
+  echo "original" > "$install_dir/devcontainer/devcontainer.json"
+  echo "original" > "$install_dir/devcontainer/Dockerfile"
+  echo "original" > "$install_dir/devcontainer/init-firewall.sh"
+  echo "original" > "$install_dir/devcontainer/sbrun"
+
+  if "$install_dir/sandbox-init" --update --repo "bogus/nonexistent-repo-$$" >/dev/null 2>&1; then
+    fail "$name" "should have failed but succeeded"
+    teardown
+    return
+  fi
+
+  # Bundled files should still have original content
+  if grep -q "original" "$install_dir/devcontainer/devcontainer.json"; then
+    pass "$name"
+  else
+    fail "$name" "bundled files were corrupted by failed update"
+  fi
+
+  teardown
+}
+
+test_update_respects_repo_flag() {
+  local name="--update respects --repo flag"
+  setup
+
+  local install_dir="$TEST_DIR/install"
+  mkdir -p "$install_dir/devcontainer"
+  cp "$SANDBOX_INIT" "$install_dir/sandbox-init"
+  chmod +x "$install_dir/sandbox-init"
+
+  local output
+  output=$("$install_dir/sandbox-init" --update --repo "myorg/myrepo" 2>&1) || true
+
+  if echo "$output" | grep -q "myorg/myrepo"; then
+    pass "$name"
+  else
+    fail "$name" "custom repo not reflected in update output"
+  fi
+
+  teardown
+}
+
 # --- Run ---
 
 echo "Running sandbox-init tests..."
@@ -302,6 +353,8 @@ test_failed_fetch_cleanup
 test_local_default
 test_local_dry_run
 test_unknown_option
+test_update_bad_repo
+test_update_respects_repo_flag
 
 echo ""
 echo "Results: $TESTS_PASSED passed, $TESTS_FAILED failed, $TESTS_SKIPPED skipped"
