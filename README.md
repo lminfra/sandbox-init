@@ -2,7 +2,7 @@
 
 One-command setup for Claude Code devcontainer isolation.
 
-Fetches the official devcontainer configuration from [anthropics/claude-code](https://github.com/anthropics/claude-code/tree/main/.devcontainer) and sets up your project for sandboxed development.
+Ships bundled devcontainer configuration (based on [anthropics/claude-code](https://github.com/anthropics/claude-code/tree/main/.devcontainer)) and sets up your project for sandboxed development. Includes additional customizations like Cursor domain whitelisting and non-fatal DNS resolution.
 
 ## Prerequisites
 
@@ -37,8 +37,17 @@ sbinit --force
 # Preview what would happen
 sbinit --dry-run
 
+# Fetch latest devcontainer files from GitHub and update bundled copies
+sbinit --update
+
+# Update from upstream anthropics/claude-code instead
+sbinit --update --upstream
+
 # Fetch from GitHub instead of using bundled files
 sbinit --remote
+
+# Use upstream anthropics/claude-code files directly
+sbinit --remote --upstream
 
 # Use a fork or custom repo
 sbinit --repo myorg/my-claude-config --branch develop
@@ -66,25 +75,27 @@ sbinit .
 
 ## What gets created
 
-Running `sbinit` creates a `.devcontainer/` directory with three files:
+Running `sbinit` creates a `.devcontainer/` directory with four files:
 
 | File | Purpose |
 |------|---------|
 | `devcontainer.json` | Container config: Node 20 base, VS Code extensions, persistent volumes, ZSH terminal |
 | `Dockerfile` | Image: Node 20, dev tools (git, gh, fzf, zsh, vim, jq), Claude Code CLI, iptables |
 | `init-firewall.sh` | Network security: default-deny firewall, whitelists GitHub, npm, Anthropic API only |
+| `sbrun` | Shortcut to run `claude --dangerously-skip-permissions` for terminal-only usage |
 
 ## Options
 
 | Flag | Description |
 |------|-------------|
 | `TARGET_DIR` | Directory to set up (default: current directory) |
-| `--repo OWNER/REPO` | Override source repo (default: `anthropics/claude-code`) |
+| `--repo OWNER/REPO` | Override source repo (default: `lminfra/sandbox-init`) |
 | `--branch BRANCH` | Override source branch (default: `main`) |
 | `--remote` | Fetch devcontainer files from GitHub instead of using bundled files |
+| `--upstream` | Use `anthropics/claude-code` as source instead of this repo |
 | `-f`, `--force` | Overwrite existing `.devcontainer/` (backs up old one first) |
 | `--dry-run` | Show what would be done, change nothing |
-| `--update` | Self-update the tool |
+| `--update` | Fetch latest devcontainer files from GitHub and update bundled copies |
 | `-v`, `--version` | Print version |
 | `-h`, `--help` | Print usage |
 
