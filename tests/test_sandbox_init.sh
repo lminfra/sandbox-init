@@ -335,6 +335,66 @@ test_update_respects_repo_flag() {
   teardown
 }
 
+test_gpu_flag() {
+  local name="--gpu injects --gpus=all into devcontainer.json"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+
+  if ! "$SANDBOX_INIT" --gpu "$target" >/dev/null 2>&1; then
+    fail "$name" "command failed"
+    teardown
+    return
+  fi
+
+  if grep -q '"--gpus=all"' "$target/.devcontainer/devcontainer.json"; then
+    pass "$name"
+  else
+    fail "$name" "missing --gpus=all in devcontainer.json"
+  fi
+
+  teardown
+}
+
+test_no_gpu_by_default() {
+  local name="without --gpu, no --gpus=all in devcontainer.json"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+
+  if ! "$SANDBOX_INIT" "$target" >/dev/null 2>&1; then
+    fail "$name" "command failed"
+    teardown
+    return
+  fi
+
+  if grep -q '"--gpus=all"' "$target/.devcontainer/devcontainer.json"; then
+    fail "$name" "found --gpus=all without --gpu flag"
+  else
+    pass "$name"
+  fi
+
+  teardown
+}
+
+test_gpu_dry_run() {
+  local name="--gpu --dry-run shows GPU injection plan"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+
+  local output
+  output=$("$SANDBOX_INIT" --gpu --dry-run "$target" 2>&1) || { fail "$name" "non-zero exit"; teardown; return; }
+
+  if echo "$output" | grep -q "gpus=all"; then
+    pass "$name"
+  else
+    fail "$name" "missing GPU injection in dry-run output"
+  fi
+
+  teardown
+}
+
 # --- Run ---
 
 echo "Running sandbox-init tests..."
@@ -355,6 +415,9 @@ test_local_dry_run
 test_unknown_option
 test_update_bad_repo
 test_update_respects_repo_flag
+test_gpu_flag
+test_no_gpu_by_default
+test_gpu_dry_run
 
 echo ""
 echo "Results: $TESTS_PASSED passed, $TESTS_FAILED failed, $TESTS_SKIPPED skipped"

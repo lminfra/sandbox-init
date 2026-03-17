@@ -51,6 +51,7 @@ Options:
   -f, --force         Overwrite existing .devcontainer/ (backs up first)
   --dry-run           Show what would be done, change nothing
   --update            Fetch latest devcontainer files from GitHub
+  --gpu               Add --gpus=all to runArgs for GPU passthrough
   -v, --version       Print version
   -h, --help          Print this help
 EOF
@@ -126,6 +127,7 @@ FORCE=false
 DRY_RUN=false
 USE_REMOTE=false
 DO_UPDATE=false
+GPU=false
 TARGET=""
 
 while [[ $# -gt 0 ]]; do
@@ -167,6 +169,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --update)
       DO_UPDATE=true
+      shift
+      ;;
+    --gpu)
+      GPU=true
       shift
       ;;
     -*)
@@ -237,6 +243,9 @@ if [[ "$DRY_RUN" == true ]]; then
     fi
   done
   info "[dry-run] Would chmod +x init-firewall.sh"
+  if [[ "$GPU" == true ]]; then
+    info "[dry-run] Would inject --gpus=all into devcontainer.json runArgs"
+  fi
   info "[dry-run] No changes made."
   exit 0
 fi
@@ -265,6 +274,15 @@ fi
 
 # Make firewall script executable
 chmod +x "$DEVCONTAINER_DIR/init-firewall.sh"
+
+# Inject GPU passthrough if requested
+if [[ "$GPU" == true ]]; then
+  info "Injecting --gpus=all into devcontainer.json..."
+  sed 's/"--cap-add=NET_RAW"/"--cap-add=NET_RAW",\
+    "--gpus=all"/' \
+    "$DEVCONTAINER_DIR/devcontainer.json" > "$DEVCONTAINER_DIR/devcontainer.json.tmp" \
+    && mv "$DEVCONTAINER_DIR/devcontainer.json.tmp" "$DEVCONTAINER_DIR/devcontainer.json"
+fi
 
 # Clear cleanup trap state (success)
 CREATED_DIR=""
