@@ -81,6 +81,11 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
 # Install Claude
 RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
 
+# Install Miniconda
+RUN wget -q https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh && \
+  bash /tmp/miniconda.sh -b -p /home/node/miniconda3 && \
+  rm /tmp/miniconda.sh
+ENV PATH="/home/node/miniconda3/bin:$PATH"
 
 # Copy and set up firewall script and sbrun shortcut
 COPY init-firewall.sh /usr/local/bin/

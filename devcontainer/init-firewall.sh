@@ -85,7 +85,11 @@ for domain in \
     "downloads.cursor.com" \
     "us-asia.gcpp.cursor.sh" \
     "us-eu.gcpp.cursor.sh" \
-    "us-only.gcpp.cursor.sh"; do
+    "us-only.gcpp.cursor.sh" \
+    "repo.anaconda.com" \
+    "conda.anaconda.org" \
+    "files.pythonhosted.org" \
+    "pypi.org"; do
     echo "Resolving $domain..."
     ips=$(dig +noall +answer A "$domain" | awk '$4 == "A" {print $5}')
     if [ -z "$ips" ]; then
