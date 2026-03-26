@@ -89,7 +89,8 @@ for domain in \
     "repo.anaconda.com" \
     "conda.anaconda.org" \
     "files.pythonhosted.org" \
-    "pypi.org"; do
+    "pypi.org" \
+    "arxiv.org"; do
     echo "Resolving $domain..."
     ips=$(dig +noall +answer A "$domain" | awk '$4 == "A" {print $5}')
     if [ -z "$ips" ]; then
@@ -106,6 +107,30 @@ for domain in \
         ipset add allowed-domains "$ip" 2>/dev/null || true
     done < <(echo "$ips")
 done
+
+# Load per-project allowed domains if present
+PROJECT_DOMAINS_FILE="/workspace/.devcontainer/allowed-domains.txt"
+if [ -f "$PROJECT_DOMAINS_FILE" ]; then
+    echo "Loading per-project allowed domains from $PROJECT_DOMAINS_FILE..."
+    while IFS= read -r domain || [ -n "$domain" ]; do
+        [[ -z "$domain" || "$domain" =~ ^[[:space:]]*# ]] && continue
+        domain="${domain//[[:space:]]/}"
+        echo "Resolving $domain..."
+        ips=$(dig +noall +answer A "$domain" | awk '$4 == "A" {print $5}')
+        if [ -z "$ips" ]; then
+            echo "WARNING: Failed to resolve $domain (skipping)"
+            continue
+        fi
+        while read -r ip; do
+            if [[ ! "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+                echo "WARNING: Invalid IP from DNS for $domain: $ip (skipping)"
+                continue
+            fi
+            echo "Adding $ip for $domain"
+            ipset add allowed-domains "$ip" 2>/dev/null || true
+        done < <(echo "$ips")
+    done < "$PROJECT_DOMAINS_FILE"
+fi
 
 # Get host IP from default route
 HOST_IP=$(ip route | grep default | cut -d" " -f3)
