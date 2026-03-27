@@ -395,6 +395,137 @@ test_gpu_dry_run() {
   teardown
 }
 
+test_vscode_flag() {
+  local name="--vscode injects Traefik labels and features block"
+  setup
+  local target="$TEST_DIR/myproject"
+  mkdir -p "$target"
+
+  if ! "$SANDBOX_INIT" --vscode "$target" >/dev/null 2>&1; then
+    fail "$name" "command failed"
+    teardown
+    return
+  fi
+
+  local json="$target/.devcontainer/devcontainer.json"
+  local ok=true
+  if ! grep -q 'traefik.enable=true' "$json"; then
+    fail "$name" "missing traefik.enable label"
+    ok=false
+  fi
+  if ! grep -q 'traefik-proxy' "$json"; then
+    fail "$name" "missing traefik-proxy network"
+    ok=false
+  fi
+  if ! grep -q 'myproject' "$json"; then
+    fail "$name" "project name not in labels"
+    ok=false
+  fi
+  if ! grep -q 'code-server' "$json"; then
+    fail "$name" "missing code-server feature"
+    ok=false
+  fi
+  if [[ "$ok" == true ]]; then
+    pass "$name"
+  fi
+
+  teardown
+}
+
+test_no_vscode_by_default() {
+  local name="without --vscode, no Traefik labels in devcontainer.json"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+
+  if ! "$SANDBOX_INIT" "$target" >/dev/null 2>&1; then
+    fail "$name" "command failed"
+    teardown
+    return
+  fi
+
+  if grep -q 'traefik' "$target/.devcontainer/devcontainer.json"; then
+    fail "$name" "found traefik labels without --vscode flag"
+  else
+    pass "$name"
+  fi
+
+  teardown
+}
+
+test_vscode_dry_run() {
+  local name="--vscode --dry-run shows injection plan, no file changes"
+  setup
+  local target="$TEST_DIR/dryproject"
+  mkdir -p "$target"
+
+  local output
+  output=$("$SANDBOX_INIT" --vscode --dry-run "$target" 2>&1) || { fail "$name" "non-zero exit"; teardown; return; }
+
+  if ! echo "$output" | grep -q "dryproject"; then
+    fail "$name" "project name missing from dry-run output"
+    teardown
+    return
+  fi
+  if [[ -d "$target/.devcontainer" ]]; then
+    fail "$name" "dry-run created files"
+  else
+    pass "$name"
+  fi
+
+  teardown
+}
+
+test_vscode_host_override() {
+  local name="--vscode-host overrides default hostname in labels"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+
+  if ! "$SANDBOX_INIT" --vscode --vscode-host myhost "$target" >/dev/null 2>&1; then
+    fail "$name" "command failed"
+    teardown
+    return
+  fi
+
+  if grep -q 'myhost' "$target/.devcontainer/devcontainer.json"; then
+    pass "$name"
+  else
+    fail "$name" "custom host not found in labels"
+  fi
+
+  teardown
+}
+
+test_gpu_and_code_server() {
+  local name="--gpu and --vscode together inject both"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+
+  if ! "$SANDBOX_INIT" --gpu --vscode "$target" >/dev/null 2>&1; then
+    fail "$name" "command failed"
+    teardown
+    return
+  fi
+
+  local json="$target/.devcontainer/devcontainer.json"
+  local ok=true
+  if ! grep -q '"--gpus=all"' "$json"; then
+    fail "$name" "missing --gpus=all"
+    ok=false
+  fi
+  if ! grep -q 'traefik.enable' "$json"; then
+    fail "$name" "missing traefik labels"
+    ok=false
+  fi
+  if [[ "$ok" == true ]]; then
+    pass "$name"
+  fi
+
+  teardown
+}
+
 # --- Run ---
 
 echo "Running sandbox-init tests..."
@@ -418,6 +549,11 @@ test_update_respects_repo_flag
 test_gpu_flag
 test_no_gpu_by_default
 test_gpu_dry_run
+test_vscode_flag
+test_no_vscode_by_default
+test_vscode_dry_run
+test_vscode_host_override
+test_gpu_and_code_server
 
 echo ""
 echo "Results: $TESTS_PASSED passed, $TESTS_FAILED failed, $TESTS_SKIPPED skipped"

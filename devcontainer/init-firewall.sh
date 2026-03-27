@@ -90,7 +90,10 @@ for domain in \
     "conda.anaconda.org" \
     "files.pythonhosted.org" \
     "pypi.org" \
-    "arxiv.org"; do
+    "arxiv.org" \
+    "auth.openai.com" \
+    "api.openai.com" \
+    "chatgpt.com"; do
     echo "Resolving $domain..."
     ips=$(dig +noall +answer A "$domain" | awk '$4 == "A" {print $5}')
     if [ -z "$ips" ]; then

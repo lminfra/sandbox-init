@@ -7,6 +7,7 @@ DEFAULT_BRANCH="main"
 UPSTREAM_REPO="anthropics/claude-code"
 UPSTREAM_PATH=".devcontainer"
 DEFAULT_PATH="devcontainer"
+DEFAULT_VSCODE_HOST="gpu01"
 FILES=("devcontainer.json" "Dockerfile" "init-firewall.sh" "sbrun")
 
 # Resolve the bundled devcontainer directory (relative to this script)
@@ -52,6 +53,8 @@ Options:
   --dry-run           Show what would be done, change nothing
   --update            Fetch latest devcontainer files from GitHub
   --gpu               Add --gpus=all to runArgs for GPU passthrough
+  --vscode       Enable code-server with Traefik routing on <project>.$DEFAULT_VSCODE_HOST
+  --vscode-host HOSTNAME  Override routing hostname (default: $DEFAULT_VSCODE_HOST)
   -v, --version       Print version
   -h, --help          Print this help
 EOF
@@ -128,6 +131,8 @@ DRY_RUN=false
 USE_REMOTE=false
 DO_UPDATE=false
 GPU=false
+VSCODE=false
+VSCODE_HOST="$DEFAULT_VSCODE_HOST"
 TARGET=""
 
 while [[ $# -gt 0 ]]; do
@@ -174,6 +179,15 @@ while [[ $# -gt 0 ]]; do
     --gpu)
       GPU=true
       shift
+      ;;
+    --vscode)
+      VSCODE=true
+      shift
+      ;;
+    --vscode-host)
+      [[ -n "${2:-}" ]] || die "--vscode-host requires an argument"
+      VSCODE_HOST="$2"
+      shift 2
       ;;
     -*)
       die "Unknown option: $1 (see --help)"
@@ -246,6 +260,9 @@ if [[ "$DRY_RUN" == true ]]; then
   if [[ "$GPU" == true ]]; then
     info "[dry-run] Would inject --gpus=all into devcontainer.json runArgs"
   fi
+  if [[ "$VSCODE" == true ]]; then
+    info "[dry-run] Would inject code-server feature + Traefik labels for $(basename "$TARGET_DIR").${VSCODE_HOST}"
+  fi
   info "[dry-run] No changes made."
   exit 0
 fi
@@ -284,6 +301,45 @@ if [[ "$GPU" == true ]]; then
     && mv "$DEVCONTAINER_DIR/devcontainer.json.tmp" "$DEVCONTAINER_DIR/devcontainer.json"
 fi
 
+# Inject code-server feature + Traefik routing if requested
+if [[ "$VSCODE" == true ]]; then
+  PROJECT_NAME="$(basename "$TARGET_DIR")"
+  info "Injecting code-server + Traefik labels for ${PROJECT_NAME}.${VSCODE_HOST}..."
+
+  # Pass 1: inject network and labels into runArgs (placeholder substitution in pass 2)
+  sed 's/"--cap-add=NET_RAW"/"--cap-add=NET_RAW",\
+    "--network=traefik-proxy",\
+    "--label=traefik.enable=true",\
+    "--label=traefik.http.routers.SBCS_PROJECT.rule=Host(`SBCS_PROJECT.SBCS_HOST`)",\
+    "--label=traefik.http.routers.SBCS_PROJECT.entrypoints=web",\
+    "--label=traefik.http.services.SBCS_PROJECT.loadbalancer.server.port=8080"/' \
+    "$DEVCONTAINER_DIR/devcontainer.json" > "$DEVCONTAINER_DIR/devcontainer.json.tmp" \
+    && mv "$DEVCONTAINER_DIR/devcontainer.json.tmp" "$DEVCONTAINER_DIR/devcontainer.json"
+
+  # Pass 2: substitute placeholders with actual project name and host
+  sed "s/SBCS_PROJECT/${PROJECT_NAME}/g; s/SBCS_HOST/${VSCODE_HOST}/g" \
+    "$DEVCONTAINER_DIR/devcontainer.json" > "$DEVCONTAINER_DIR/devcontainer.json.tmp" \
+    && mv "$DEVCONTAINER_DIR/devcontainer.json.tmp" "$DEVCONTAINER_DIR/devcontainer.json"
+
+  # Pass 3: insert features block before "remoteUser"
+  sed 's/  "remoteUser": "node",/  "features": {\
+    "ghcr.io\/coder\/devcontainer-features\/code-server:2": {\
+      "port": 8080,\
+      "host": "0.0.0.0",\
+      "auth": "none",\
+      "disableTelemetry": true\
+    }\
+  },\
+  "remoteUser": "node",/' \
+    "$DEVCONTAINER_DIR/devcontainer.json" > "$DEVCONTAINER_DIR/devcontainer.json.tmp" \
+    && mv "$DEVCONTAINER_DIR/devcontainer.json.tmp" "$DEVCONTAINER_DIR/devcontainer.json"
+
+  # Warn if Traefik network doesn't exist yet
+  if command -v docker >/dev/null 2>&1 && ! docker network inspect traefik-proxy >/dev/null 2>&1; then
+    warn "Docker network 'traefik-proxy' not found — run: cd ~/services/traefik && docker compose up -d"
+  fi
+fi
+
 # Clear cleanup trap state (success)
 CREATED_DIR=""
 
@@ -300,3 +356,9 @@ echo "Next steps:"
 echo "  1. Open $TARGET_DIR in VS Code or Cursor"
 echo "  2. Run \"Dev Containers: Reopen in Container\" from the command palette"
 echo "  3. Claude Code is ready inside the container"
+if [[ "$VSCODE" == true ]]; then
+  echo ""
+  echo "code-server (browser access):"
+  echo "  http://${PROJECT_NAME}.${VSCODE_HOST}"
+  echo "  (requires Traefik running at ~/services/traefik and *.${VSCODE_HOST} DNS configured)"
+fi
