@@ -8,7 +8,7 @@ UPSTREAM_REPO="anthropics/claude-code"
 UPSTREAM_PATH=".devcontainer"
 DEFAULT_PATH="devcontainer"
 DEFAULT_VSCODE_HOST="gpu01"
-FILES=("devcontainer.json" "Dockerfile" "init-firewall.sh" "sbrun" "patch-cs-folder.sh" "allowed-domains.txt")
+FILES=("devcontainer.json" "Dockerfile" "init-firewall.sh" "default-domains.txt" "fw-reload" "fw-add" "sbrun" "patch-cs-folder.sh" "allowed-domains.txt")
 
 # Resolve the bundled devcontainer directory (relative to this script)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -101,7 +101,7 @@ update_artifacts() {
   for file in "${FILES[@]}"; do
     cp "$tmp_dir/$file" "$BUNDLED_DIR/$file"
   done
-  chmod +x "$BUNDLED_DIR/init-firewall.sh"
+  chmod +x "$BUNDLED_DIR/init-firewall.sh" "$BUNDLED_DIR/fw-reload" "$BUNDLED_DIR/fw-add"
   rm -rf "$tmp_dir"
 
   info "Bundled devcontainer files updated in $BUNDLED_DIR/"
@@ -291,8 +291,8 @@ else
   done
 fi
 
-# Make firewall script executable
-chmod +x "$DEVCONTAINER_DIR/init-firewall.sh"
+# Make scripts executable
+chmod +x "$DEVCONTAINER_DIR/init-firewall.sh" "$DEVCONTAINER_DIR/fw-reload" "$DEVCONTAINER_DIR/fw-add"
 
 # Inject GPU passthrough if requested
 if [[ "$GPU" == true ]]; then

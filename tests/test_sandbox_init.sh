@@ -497,6 +497,59 @@ test_vscode_host_override() {
   teardown
 }
 
+test_firewall_convenience_scripts() {
+  local name="fw-reload, fw-add, and default-domains.txt are created"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+
+  if ! "$SANDBOX_INIT" "$target" >/dev/null 2>&1; then
+    fail "$name" "command failed"
+    teardown
+    return
+  fi
+
+  local ok=true
+  for f in fw-reload fw-add default-domains.txt; do
+    if [[ ! -f "$target/.devcontainer/$f" ]]; then
+      fail "$name" "missing $f"
+      ok=false
+      break
+    fi
+  done
+
+  if [[ "$ok" == true ]]; then
+    if [[ -x "$target/.devcontainer/fw-reload" ]] && [[ -x "$target/.devcontainer/fw-add" ]]; then
+      pass "$name"
+    else
+      fail "$name" "fw-reload or fw-add not executable"
+    fi
+  fi
+
+  teardown
+}
+
+test_default_domains_has_content() {
+  local name="default-domains.txt contains expected domains"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+
+  if ! "$SANDBOX_INIT" "$target" >/dev/null 2>&1; then
+    fail "$name" "command failed"
+    teardown
+    return
+  fi
+
+  if grep -q "api.anthropic.com" "$target/.devcontainer/default-domains.txt"; then
+    pass "$name"
+  else
+    fail "$name" "missing expected domain in default-domains.txt"
+  fi
+
+  teardown
+}
+
 test_gpu_and_code_server() {
   local name="--gpu and --vscode together inject both"
   setup
@@ -554,6 +607,8 @@ test_no_vscode_by_default
 test_vscode_dry_run
 test_vscode_host_override
 test_gpu_and_code_server
+test_firewall_convenience_scripts
+test_default_domains_has_content
 
 echo ""
 echo "Results: $TESTS_PASSED passed, $TESTS_FAILED failed, $TESTS_SKIPPED skipped"

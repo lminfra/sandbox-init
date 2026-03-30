@@ -5,7 +5,7 @@ INSTALL_DIR="${HOME}/.local/bin"
 SCRIPT_NAME="sandbox-init"
 SYMLINK_NAME="sbinit"
 UPSTREAM_BASE="https://raw.githubusercontent.com/anthropics/claude-code/main/.devcontainer"
-DEVCONTAINER_FILES=("devcontainer.json" "Dockerfile" "init-firewall.sh" "sbrun" "patch-cs-folder.sh")
+DEVCONTAINER_FILES=("devcontainer.json" "Dockerfile" "init-firewall.sh" "default-domains.txt" "fw-reload" "fw-add" "sbrun" "patch-cs-folder.sh")
 
 die() {
   echo "error: $1" >&2

@@ -92,10 +92,13 @@ ENV PATH="/home/node/miniconda3/bin:$PATH"
 
 # Copy and set up firewall script, sbrun shortcut, and code-server folder patcher
 COPY init-firewall.sh /usr/local/bin/
+COPY default-domains.txt /usr/local/bin/
+COPY fw-reload /usr/local/bin/
+COPY fw-add /usr/local/bin/
 COPY sbrun /usr/local/bin/
 COPY patch-cs-folder.sh /usr/local/bin/
 USER root
-RUN chmod +x /usr/local/bin/init-firewall.sh /usr/local/bin/sbrun /usr/local/bin/patch-cs-folder.sh && \
+RUN chmod +x /usr/local/bin/init-firewall.sh /usr/local/bin/fw-reload /usr/local/bin/fw-add /usr/local/bin/sbrun /usr/local/bin/patch-cs-folder.sh && \
   echo "node ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh, /usr/local/bin/patch-cs-folder.sh" > /etc/sudoers.d/node-firewall && \
   chmod 0440 /etc/sudoers.d/node-firewall
 USER node

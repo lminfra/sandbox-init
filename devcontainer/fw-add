@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+exec sudo /usr/local/bin/init-firewall.sh add "$@"

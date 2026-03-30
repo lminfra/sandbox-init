@@ -1,0 +1,42 @@
+# NPM registry
+registry.npmjs.org
+
+# Anthropic
+api.anthropic.com
+sentry.io
+statsig.anthropic.com
+statsig.com
+
+# VS Code
+marketplace.visualstudio.com
+vscode.blob.core.windows.net
+update.code.visualstudio.com
+
+# Cursor
+api2.cursor.sh
+api3.cursor.sh
+api4.cursor.sh
+repo42.cursor.sh
+authenticator.cursor.sh
+authenticate.cursor.sh
+marketplace.cursorapi.com
+cursor-cdn.com
+download.todesktop.com
+downloads.cursor.com
+us-asia.gcpp.cursor.sh
+us-eu.gcpp.cursor.sh
+us-only.gcpp.cursor.sh
+
+# Python / Conda
+repo.anaconda.com
+conda.anaconda.org
+files.pythonhosted.org
+pypi.org
+
+# Research
+arxiv.org
+
+# OpenAI
+auth.openai.com
+api.openai.com
+chatgpt.com

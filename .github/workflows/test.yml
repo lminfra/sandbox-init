@@ -15,7 +15,7 @@ jobs:
       - name: Install shellcheck
         run: sudo apt-get install -y shellcheck
       - name: Run shellcheck
-        run: shellcheck sandbox-init install.sh tests/test_sandbox_init.sh
+        run: shellcheck sandbox-init install.sh tests/test_sandbox_init.sh devcontainer/fw-reload devcontainer/fw-add
 
   test:
     name: Tests (${{ matrix.os }})
