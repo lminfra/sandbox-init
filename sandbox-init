@@ -8,7 +8,7 @@ UPSTREAM_REPO="anthropics/claude-code"
 UPSTREAM_PATH=".devcontainer"
 DEFAULT_PATH="devcontainer"
 DEFAULT_VSCODE_HOST="gpu01"
-FILES=("devcontainer.json" "Dockerfile" "init-firewall.sh" "sbrun")
+FILES=("devcontainer.json" "Dockerfile" "init-firewall.sh" "sbrun" "patch-cs-folder.sh" "allowed-domains.txt")
 
 # Resolve the bundled devcontainer directory (relative to this script)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -259,6 +259,8 @@ if [[ "$DRY_RUN" == true ]]; then
   info "[dry-run] Would chmod +x init-firewall.sh"
   if [[ "$GPU" == true ]]; then
     info "[dry-run] Would inject --gpus=all into devcontainer.json runArgs"
+    info "[dry-run] Would mount host /usr/local/cuda into container (readonly)"
+    info "[dry-run] Would set CUDA_HOME=/usr/local/cuda in containerEnv"
   fi
   if [[ "$VSCODE" == true ]]; then
     info "[dry-run] Would inject code-server feature + Traefik labels for $(basename "$TARGET_DIR").${VSCODE_HOST}"
@@ -299,6 +301,17 @@ if [[ "$GPU" == true ]]; then
     "--gpus=all"/' \
     "$DEVCONTAINER_DIR/devcontainer.json" > "$DEVCONTAINER_DIR/devcontainer.json.tmp" \
     && mv "$DEVCONTAINER_DIR/devcontainer.json.tmp" "$DEVCONTAINER_DIR/devcontainer.json"
+
+  info "Mounting host CUDA toolkit into container..."
+  sed 's|"source=claude-code-config-\${devcontainerId},target=/home/node/.claude,type=volume"|"source=claude-code-config-${devcontainerId},target=/home/node/.claude,type=volume",\
+    "source=/usr/local/cuda,target=/usr/local/cuda,type=bind,readonly"|' \
+    "$DEVCONTAINER_DIR/devcontainer.json" > "$DEVCONTAINER_DIR/devcontainer.json.tmp" \
+    && mv "$DEVCONTAINER_DIR/devcontainer.json.tmp" "$DEVCONTAINER_DIR/devcontainer.json"
+
+  sed 's/"POWERLEVEL9K_DISABLE_GITSTATUS": "true"/"POWERLEVEL9K_DISABLE_GITSTATUS": "true",\
+    "CUDA_HOME": "\/usr\/local\/cuda"/' \
+    "$DEVCONTAINER_DIR/devcontainer.json" > "$DEVCONTAINER_DIR/devcontainer.json.tmp" \
+    && mv "$DEVCONTAINER_DIR/devcontainer.json.tmp" "$DEVCONTAINER_DIR/devcontainer.json"
 fi
 
 # Inject code-server feature + Traefik routing if requested
@@ -311,7 +324,8 @@ if [[ "$VSCODE" == true ]]; then
     "--network=traefik-proxy",\
     "--label=traefik.enable=true",\
     "--label=traefik.http.routers.SBCS_PROJECT.rule=Host(`SBCS_PROJECT.SBCS_HOST`)",\
-    "--label=traefik.http.routers.SBCS_PROJECT.entrypoints=web",\
+    "--label=traefik.http.routers.SBCS_PROJECT.entrypoints=websecure",\
+    "--label=traefik.http.routers.SBCS_PROJECT.tls=true",\
     "--label=traefik.http.services.SBCS_PROJECT.loadbalancer.server.port=8080"/' \
     "$DEVCONTAINER_DIR/devcontainer.json" > "$DEVCONTAINER_DIR/devcontainer.json.tmp" \
     && mv "$DEVCONTAINER_DIR/devcontainer.json.tmp" "$DEVCONTAINER_DIR/devcontainer.json"
@@ -331,6 +345,14 @@ if [[ "$VSCODE" == true ]]; then
     }\
   },\
   "remoteUser": "node",/' \
+    "$DEVCONTAINER_DIR/devcontainer.json" > "$DEVCONTAINER_DIR/devcontainer.json.tmp" \
+    && mv "$DEVCONTAINER_DIR/devcontainer.json.tmp" "$DEVCONTAINER_DIR/devcontainer.json"
+
+  # Pass 4: inject postCreateCommand to patch the code-server entrypoint folder.
+  # The coder feature hardcodes /home/node; patch-cs-folder.sh fixes it to /workspace
+  # so that every subsequent container start opens the correct workspace.
+  sed 's/"waitFor": "postStartCommand"/"postCreateCommand": "sudo \/usr\/local\/bin\/patch-cs-folder.sh",\
+  "waitFor": "postStartCommand"/' \
     "$DEVCONTAINER_DIR/devcontainer.json" > "$DEVCONTAINER_DIR/devcontainer.json.tmp" \
     && mv "$DEVCONTAINER_DIR/devcontainer.json.tmp" "$DEVCONTAINER_DIR/devcontainer.json"
 
@@ -359,6 +381,6 @@ echo "  3. Claude Code is ready inside the container"
 if [[ "$VSCODE" == true ]]; then
   echo ""
   echo "code-server (browser access):"
-  echo "  http://${PROJECT_NAME}.${VSCODE_HOST}"
+  echo "  https://${PROJECT_NAME}.${VSCODE_HOST}/?folder=/workspace"
   echo "  (requires Traefik running at ~/services/traefik and *.${VSCODE_HOST} DNS configured)"
 fi

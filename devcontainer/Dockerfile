@@ -90,11 +90,12 @@ RUN wget -q https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.s
   rm /tmp/miniconda.sh
 ENV PATH="/home/node/miniconda3/bin:$PATH"
 
-# Copy and set up firewall script and sbrun shortcut
+# Copy and set up firewall script, sbrun shortcut, and code-server folder patcher
 COPY init-firewall.sh /usr/local/bin/
 COPY sbrun /usr/local/bin/
+COPY patch-cs-folder.sh /usr/local/bin/
 USER root
-RUN chmod +x /usr/local/bin/init-firewall.sh /usr/local/bin/sbrun && \
-  echo "node ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh" > /etc/sudoers.d/node-firewall && \
+RUN chmod +x /usr/local/bin/init-firewall.sh /usr/local/bin/sbrun /usr/local/bin/patch-cs-folder.sh && \
+  echo "node ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh, /usr/local/bin/patch-cs-folder.sh" > /etc/sudoers.d/node-firewall && \
   chmod 0440 /etc/sudoers.d/node-firewall
 USER node
