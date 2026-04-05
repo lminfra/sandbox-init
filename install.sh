@@ -4,6 +4,7 @@ set -euo pipefail
 INSTALL_DIR="${HOME}/.local/bin"
 SCRIPT_NAME="sandbox-init"
 SYMLINK_NAME="sbinit"
+DEVC_NAME="devc"
 UPSTREAM_BASE="https://raw.githubusercontent.com/anthropics/claude-code/main/.devcontainer"
 DEVCONTAINER_FILES=("devcontainer.json" "Dockerfile" "init-firewall.sh" "default-domains.txt" "fw-reload" "fw-add" "sbrun" "patch-cs-folder.sh")
 
@@ -30,7 +31,7 @@ done
 # Handle uninstall
 if [[ "$DO_UNINSTALL" == true ]]; then
   removed=0
-  for target in "${INSTALL_DIR}/${SCRIPT_NAME}" "${INSTALL_DIR}/${SYMLINK_NAME}"; do
+  for target in "${INSTALL_DIR}/${SCRIPT_NAME}" "${INSTALL_DIR}/${SYMLINK_NAME}" "${INSTALL_DIR}/${DEVC_NAME}"; do
     if [[ -e "$target" || -L "$target" ]]; then
       rm -f "$target"
       info "Removed $target"
@@ -77,6 +78,14 @@ mkdir -p "$INSTALL_DIR"
 info "Copying ${SCRIPT_NAME} -> ${INSTALL_DIR}/${SCRIPT_NAME}"
 cp "$SOURCE" "${INSTALL_DIR}/${SCRIPT_NAME}"
 chmod +x "${INSTALL_DIR}/${SCRIPT_NAME}"
+
+# Install devc wrapper
+DEVC_SOURCE="${SCRIPT_DIR}/${DEVC_NAME}"
+if [[ -f "$DEVC_SOURCE" ]]; then
+  info "Copying ${DEVC_NAME} -> ${INSTALL_DIR}/${DEVC_NAME}"
+  cp "$DEVC_SOURCE" "${INSTALL_DIR}/${DEVC_NAME}"
+  chmod +x "${INSTALL_DIR}/${DEVC_NAME}"
+fi
 
 # Install devcontainer files
 BUNDLED_DEST="${INSTALL_DIR}/${BUNDLED_DIR_NAME}"
@@ -132,4 +141,4 @@ if [[ ":${PATH}:" != *":${INSTALL_DIR}:"* ]]; then
   echo ""
 fi
 
-info "Done! Run 'sbinit --help' to get started."
+info "Done! Run 'sbinit --help' or 'devc --help' to get started."

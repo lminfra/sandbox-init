@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+die() {
+  echo "error: $1" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'EOF'
+devc — devcontainer shell shortcut
+
+Usage:
+  devc [PATH]           Start container (if needed) and open a shell
+  devc -a               List all dev containers
+  devc @N               Enter shell of container number N (from devc -a)
+  devc @name            Enter shell of container matching name substring
+  devc <subcommand>     Pass through to devcontainer CLI
+
+Examples:
+  devc .                Enter dev container for current directory
+  devc -a               List all dev containers with index numbers
+  devc @3               Enter dev container #3
+  devc @lean            Enter dev container whose name contains "lean"
+EOF
+}
+
+# List all devcontainers, output numbered list
+list_containers() {
+  local format='{{.ID}}\t{{.Names}}\t{{.Label "devcontainer.local_folder"}}\t{{.Status}}'
+  local lines
+  lines=$(docker ps -a --filter "label=devcontainer.local_folder" --format "$format" 2>/dev/null)
+
+  if [[ -z "$lines" ]]; then
+    echo "No dev containers found."
+    return
+  fi
+
+  printf "  %-4s %-12s %-35s %-30s %s\n" "#" "ID" "NAME" "WORKSPACE" "STATUS"
+  printf "  %-4s %-12s %-35s %-30s %s\n" "---" "------------" "-----------------------------------" "------------------------------" "------"
+
+  local i=1
+  while IFS=$'\t' read -r id name folder status; do
+    # Shorten workspace to basename for readability
+    local short_folder
+    short_folder=$(basename "$folder")
+    printf "  %-4s %-12s %-35s %-30s %s\n" "$i" "${id:0:12}" "$name" "$short_folder" "$status"
+    i=$((i + 1))
+  done <<< "$lines"
+}
+
+# Get container info by index number or name substring
+# Sets: MATCH_ID, MATCH_NAME, MATCH_FOLDER, MATCH_STATUS
+resolve_container() {
+  local selector="$1"
+  local format='{{.ID}}\t{{.Names}}\t{{.Label "devcontainer.local_folder"}}\t{{.Status}}'
+  local lines
+  lines=$(docker ps -a --filter "label=devcontainer.local_folder" --format "$format" 2>/dev/null)
+
+  [[ -n "$lines" ]] || die "no dev containers found"
+
+  # By number
+  if [[ "$selector" =~ ^[0-9]+$ ]]; then
+    local line
+    line=$(sed -n "${selector}p" <<< "$lines")
+    [[ -n "$line" ]] || die "no container at index $selector (run 'devc -a' to see the list)"
+    IFS=$'\t' read -r MATCH_ID MATCH_NAME MATCH_FOLDER MATCH_STATUS <<< "$line"
+    return
+  fi
+
+  # By name substring
+  local matches=()
+  while IFS= read -r line; do
+    matches+=("$line")
+  done < <(grep -i "$selector" <<< "$lines" || true)
+
+  if [[ ${#matches[@]} -eq 0 ]]; then
+    die "no container matching '$selector' (run 'devc -a' to see the list)"
+  elif [[ ${#matches[@]} -gt 1 ]]; then
+    echo "Multiple matches for '$selector':" >&2
+    local i=1
+    for m in "${matches[@]}"; do
+      IFS=$'\t' read -r id name folder status <<< "$m"
+      echo "  $i) $name ($folder)" >&2
+      i=$((i + 1))
+    done
+    die "be more specific, or use the index number from 'devc -a'"
+  fi
+
+  IFS=$'\t' read -r MATCH_ID MATCH_NAME MATCH_FOLDER MATCH_STATUS <<< "${matches[0]}"
+}
+
+enter_container() {
+  local id="$1" name="$2" status="$3" folder="${4:-}"
+
+  # Start if not running
+  if [[ "$status" != Up* ]]; then
+    echo "=> Starting $name..."
+    if ! docker start "$id" > /dev/null 2>&1; then
+      echo "error: failed to start $name" >&2
+      echo "" >&2
+      echo "The container may be broken (e.g. its network was pruned)." >&2
+      echo "To fix, remove it and recreate from the project directory:" >&2
+      echo "  docker rm $id" >&2
+      echo "  devc ${folder:-<project-dir>}" >&2
+      exit 1
+    fi
+  fi
+
+  echo "=> Entering $name..."
+  exec docker exec -it "$id" zsh
+}
+
+if [[ $# -eq 0 ]]; then
+  usage
+  exit 0
+fi
+
+if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+# List all dev containers
+if [[ "$1" == "-a" ]]; then
+  list_containers
+  exit 0
+fi
+
+# Enter container by selector: devc @3 or devc @lean
+if [[ "$1" == @* ]]; then
+  selector="${1#@}"
+  [[ -n "$selector" ]] || die "usage: devc @N or devc @name"
+  resolve_container "$selector"
+  enter_container "$MATCH_ID" "$MATCH_NAME" "$MATCH_STATUS" "$MATCH_FOLDER"
+  exit 0
+fi
+
+# If the sole argument is a directory, enter the dev container shell
+if [[ $# -eq 1 ]] && [[ -d "$1" ]]; then
+  workspace="$(cd "$1" && pwd)"
+
+  if [[ ! -d "$workspace/.devcontainer" ]]; then
+    die "no .devcontainer/ found in $workspace (run 'sbinit $workspace' to create one)"
+  fi
+
+  echo "=> Starting container..."
+  devcontainer up --workspace-folder "$workspace"
+
+  echo "=> Entering shell..."
+  exec devcontainer exec --workspace-folder "$workspace" zsh
+fi
+
+# Otherwise pass through to devcontainer
+exec devcontainer "$@"
