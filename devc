@@ -140,6 +140,15 @@ fi
 if [[ $# -eq 1 ]] && [[ -d "$1" ]]; then
   workspace="$(cd "$1" && pwd)"
 
+  # Stable volume ID: basename + short hash of full path for uniqueness.
+  # Exported so devcontainer.json can reference it via ${localEnv:DEVC_VOLUME_ID}.
+  if command -v md5sum &>/dev/null; then
+    ws_hash="$(printf '%s' "$workspace" | md5sum | cut -c1-8)"
+  else
+    ws_hash="$(printf '%s' "$workspace" | md5 | cut -c1-8)"
+  fi
+  export DEVC_VOLUME_ID="$(basename "$workspace")-${ws_hash}"
+
   if [[ ! -d "$workspace/.devcontainer" ]]; then
     die "no .devcontainer/ found in $workspace (run 'sbinit $workspace' to create one)"
   fi
