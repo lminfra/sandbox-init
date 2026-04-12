@@ -131,6 +131,17 @@ if [[ "$CLEANUP_SOURCE" == true ]]; then
   rm -f "$SOURCE"
 fi
 
+# Check devcontainer CLI
+if ! command -v devcontainer &>/dev/null; then
+  echo ""
+  echo "NOTE: The 'devcontainer' CLI was not found on your PATH."
+  echo "'devc' requires it to start and enter containers."
+  echo "Install it via npm:"
+  echo ""
+  echo "  npm install -g @devcontainers/cli"
+  echo ""
+fi
+
 # Check PATH
 if [[ ":${PATH}:" != *":${INSTALL_DIR}:"* ]]; then
   echo ""
