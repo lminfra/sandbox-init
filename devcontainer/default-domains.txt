@@ -1,5 +1,6 @@
-# NPM registry
+# NPM / Yarn
 registry.npmjs.org
+registry.yarnpkg.com
 
 # Anthropic
 api.anthropic.com
@@ -33,8 +34,25 @@ conda.anaconda.org
 files.pythonhosted.org
 pypi.org
 
+# Rust
+crates.io
+static.crates.io
+
+# Ruby
+rubygems.org
+
+# Alpine
+dl-cdn.alpinelinux.org
+
+# GitHub (raw content / releases)
+raw.githubusercontent.com
+objects.githubusercontent.com
+github.com
+
 # Research
 arxiv.org
+huggingface.co
+cdn-lfs.huggingface.co
 
 # OpenAI
 auth.openai.com
