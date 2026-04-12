@@ -154,7 +154,26 @@ if [[ $# -eq 1 ]] && [[ -d "$1" ]]; then
   fi
 
   echo "=> Starting container..."
-  devcontainer up --workspace-folder "$workspace"
+  up_output=$(devcontainer up --workspace-folder "$workspace" 2>&1) || {
+    if echo "$up_output" | grep -q "container breakout detected"; then
+      stale_id=$(echo "$up_output" | grep -o '"containerId":"[^"]*"' | cut -d'"' -f4)
+      echo "$up_output"
+      echo ""
+      echo "This usually means a stale container from a previous failed run."
+      echo "Remove it and retry:"
+      echo ""
+      if [[ -n "$stale_id" ]]; then
+        echo "  docker rm -f ${stale_id:0:12}"
+      else
+        echo "  docker rm -f \$(docker ps -aq --filter label=devcontainer.local_folder=$workspace)"
+      fi
+      echo "  devc $1"
+      exit 1
+    fi
+    echo "$up_output"
+    exit 1
+  }
+  echo "$up_output"
 
   echo "=> Entering shell..."
   exec devcontainer exec --workspace-folder "$workspace" zsh

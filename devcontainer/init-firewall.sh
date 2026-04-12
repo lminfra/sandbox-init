@@ -134,11 +134,6 @@ setup_base_iptables() {
   iptables -A INPUT -s "$host_network" -j ACCEPT
   iptables -A OUTPUT -d "$host_network" -j ACCEPT
 
-  # Set default policies to DROP
-  iptables -P INPUT DROP
-  iptables -P FORWARD DROP
-  iptables -P OUTPUT DROP
-
   # Allow established connections
   iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
   iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
@@ -168,13 +163,16 @@ verify_firewall() {
 cmd_init() {
   setup_base_iptables
 
-  # Create ipset and populate with all allowed IPs
+  # Create ipset and populate while outbound is still open
   ipset create allowed-domains hash:net
   build_full_ipset "allowed-domains"
 
-  # Allow only traffic to allowed domains, reject everything else
+  # Now lock down: allow ipset destinations, reject everything else
   iptables -A OUTPUT -m set --match-set allowed-domains dst -j ACCEPT
   iptables -A OUTPUT -j REJECT --reject-with icmp-admin-prohibited
+  iptables -P INPUT DROP
+  iptables -P FORWARD DROP
+  iptables -P OUTPUT DROP
 
   echo "Firewall configuration complete"
   verify_firewall
