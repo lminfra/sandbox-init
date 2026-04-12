@@ -84,8 +84,9 @@ ENV PATH="/home/node/.local/bin:$PATH"
 # Install Codex
 RUN npm install -g @openai/codex
 
-# Install Miniconda
-RUN wget -q https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh && \
+# Install Miniconda (detect arch for Apple Silicon / ARM support)
+RUN ARCH="$(uname -m)" && \
+  wget -q "https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-${ARCH}.sh" -O /tmp/miniconda.sh && \
   bash /tmp/miniconda.sh -b -p /home/node/miniconda3 && \
   rm /tmp/miniconda.sh
 ENV PATH="/home/node/miniconda3/bin:$PATH"

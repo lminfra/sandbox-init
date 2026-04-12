@@ -286,7 +286,7 @@ if [[ "$GPU" == true ]]; then
     && mv "$DEVCONTAINER_DIR/devcontainer.json.tmp" "$DEVCONTAINER_DIR/devcontainer.json"
 
   info "Mounting host CUDA toolkit into container..."
-  sed 's|"source=claude-code-config-\${devcontainerId},target=/home/node/.claude,type=volume"|"source=claude-code-config-${devcontainerId},target=/home/node/.claude,type=volume",\
+  sed 's|"source=claude-code-config-\${localEnv:DEVC_VOLUME_ID},target=/home/node/.claude,type=volume"|"source=claude-code-config-${localEnv:DEVC_VOLUME_ID},target=/home/node/.claude,type=volume",\
     "source=/usr/local/cuda,target=/usr/local/cuda,type=bind,readonly"|' \
     "$DEVCONTAINER_DIR/devcontainer.json" > "$DEVCONTAINER_DIR/devcontainer.json.tmp" \
     && mv "$DEVCONTAINER_DIR/devcontainer.json.tmp" "$DEVCONTAINER_DIR/devcontainer.json"
