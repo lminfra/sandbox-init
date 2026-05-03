@@ -90,6 +90,25 @@ ENV PATH="/home/node/.local/bin:$PATH"
 # Install Codex
 RUN npm install -g @openai/codex
 
+# In a containerized/remote env there's usually no browser, so transparently
+# rewrite `codex login` to `codex login --device-auth` (with a notice).
+# Pass-through if the user already supplied --device-auth, --help, or -h.
+RUN printf '%s\n' \
+  '' \
+  '# sbinit: prefer device-auth for `codex login` (no browser in containerized env)' \
+  'codex() {' \
+  '  if [[ "$1" == "login" ]]; then' \
+  '    for arg in "${@:2}"; do' \
+  '      case "$arg" in --device-auth|--help|-h) command codex "$@"; return $? ;; esac' \
+  '    done' \
+  '    echo "=> [sbinit] codex login: using --device-auth (no browser in containerized/remote env)"' \
+  '    command codex login --device-auth "${@:2}"' \
+  '  else' \
+  '    command codex "$@"' \
+  '  fi' \
+  '}' \
+  >> /home/node/.zshrc
+
 # Install Miniconda (detect arch for Apple Silicon / ARM support)
 RUN ARCH="$(uname -m)" && \
   wget -q "https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-${ARCH}.sh" -O /tmp/miniconda.sh && \
