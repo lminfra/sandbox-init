@@ -448,6 +448,123 @@ test_default_domains_has_content() {
   teardown
 }
 
+test_md_seeded_by_default() {
+  local name="seeds CLAUDE.md and adds it to .gitignore by default"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+
+  if ! "$SANDBOX_INIT" "$target" >/dev/null 2>&1; then
+    fail "$name" "command failed"
+    teardown
+    return
+  fi
+
+  if [[ ! -f "$target/CLAUDE.md" ]]; then
+    fail "$name" "CLAUDE.md was not seeded"
+    teardown
+    return
+  fi
+
+  if [[ ! -f "$target/.gitignore" ]] || ! grep -qxF "CLAUDE.md" "$target/.gitignore"; then
+    fail "$name" "CLAUDE.md not added to .gitignore"
+    teardown
+    return
+  fi
+
+  pass "$name"
+  teardown
+}
+
+test_no_md_flag() {
+  local name="--no-md skips CLAUDE.md seed and .gitignore entry"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+
+  if ! "$SANDBOX_INIT" --no-md "$target" >/dev/null 2>&1; then
+    fail "$name" "command failed"
+    teardown
+    return
+  fi
+
+  if [[ -f "$target/CLAUDE.md" ]]; then
+    fail "$name" "CLAUDE.md was seeded despite --no-md"
+  elif [[ -f "$target/.gitignore" ]]; then
+    fail "$name" ".gitignore was created despite --no-md"
+  else
+    pass "$name"
+  fi
+
+  teardown
+}
+
+test_md_no_overwrite() {
+  local name="does not overwrite a pre-existing CLAUDE.md"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+  echo "USER CONTENT" > "$target/CLAUDE.md"
+
+  if ! "$SANDBOX_INIT" "$target" >/dev/null 2>&1; then
+    fail "$name" "command failed"
+    teardown
+    return
+  fi
+
+  if grep -q "USER CONTENT" "$target/CLAUDE.md"; then
+    pass "$name"
+  else
+    fail "$name" "pre-existing CLAUDE.md was overwritten"
+  fi
+
+  teardown
+}
+
+test_md_dry_run() {
+  local name="--dry-run announces CLAUDE.md seed plan and creates nothing"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+
+  local output
+  output=$("$SANDBOX_INIT" --dry-run "$target" 2>&1) || { fail "$name" "non-zero exit"; teardown; return; }
+
+  if [[ -f "$target/CLAUDE.md" || -f "$target/.gitignore" ]]; then
+    fail "$name" "dry-run created files"
+  elif echo "$output" | grep -q "Would seed.*CLAUDE.md"; then
+    pass "$name"
+  else
+    fail "$name" "missing 'Would seed CLAUDE.md' line"
+  fi
+
+  teardown
+}
+
+test_md_gitignore_idempotent() {
+  local name="CLAUDE.md entry not duplicated if already in .gitignore"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+  printf 'node_modules\nCLAUDE.md\n' > "$target/.gitignore"
+
+  if ! "$SANDBOX_INIT" "$target" >/dev/null 2>&1; then
+    fail "$name" "command failed"
+    teardown
+    return
+  fi
+
+  local count
+  count=$(grep -cxF "CLAUDE.md" "$target/.gitignore")
+  if [[ "$count" -eq 1 ]]; then
+    pass "$name"
+  else
+    fail "$name" "expected 1 'CLAUDE.md' line, got $count"
+  fi
+
+  teardown
+}
+
 # --- Run ---
 
 echo "Running sandbox-init tests..."
@@ -473,6 +590,11 @@ test_no_gpu_by_default
 test_gpu_dry_run
 test_firewall_convenience_scripts
 test_default_domains_has_content
+test_md_seeded_by_default
+test_no_md_flag
+test_md_no_overwrite
+test_md_dry_run
+test_md_gitignore_idempotent
 
 echo ""
 echo "Results: $TESTS_PASSED passed, $TESTS_FAILED failed, $TESTS_SKIPPED skipped"
