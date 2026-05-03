@@ -477,12 +477,12 @@ test_md_seeded_by_default() {
 }
 
 test_no_md_flag() {
-  local name="--no-md skips CLAUDE.md seed and .gitignore entry"
+  local name="--no-md skips CLAUDE.md seed and its .gitignore entry"
   setup
   local target="$TEST_DIR/project"
   mkdir -p "$target"
 
-  if ! "$SANDBOX_INIT" --no-md "$target" >/dev/null 2>&1; then
+  if ! "$SANDBOX_INIT" --no-md --no-tmp "$target" >/dev/null 2>&1; then
     fail "$name" "command failed"
     teardown
     return
@@ -490,8 +490,8 @@ test_no_md_flag() {
 
   if [[ -f "$target/CLAUDE.md" ]]; then
     fail "$name" "CLAUDE.md was seeded despite --no-md"
-  elif [[ -f "$target/.gitignore" ]]; then
-    fail "$name" ".gitignore was created despite --no-md"
+  elif [[ -f "$target/.gitignore" ]] && grep -qxF "CLAUDE.md" "$target/.gitignore"; then
+    fail "$name" "CLAUDE.md added to .gitignore despite --no-md"
   else
     pass "$name"
   fi
@@ -565,6 +565,108 @@ test_md_gitignore_idempotent() {
   teardown
 }
 
+test_tmp_dir_created() {
+  local name=".tmp/ created with runs/scratch/notes subdirs and gitignored"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+
+  if ! "$SANDBOX_INIT" "$target" >/dev/null 2>&1; then
+    fail "$name" "command failed"
+    teardown
+    return
+  fi
+
+  local ok=true
+  for sub in runs scratch notes; do
+    if [[ ! -d "$target/.tmp/$sub" ]]; then
+      fail "$name" "missing .tmp/$sub"
+      ok=false
+      break
+    fi
+    if [[ ! -f "$target/.tmp/$sub/.gitkeep" ]]; then
+      fail "$name" "missing .tmp/$sub/.gitkeep"
+      ok=false
+      break
+    fi
+  done
+
+  if [[ "$ok" == true ]]; then
+    if grep -qxF ".tmp/" "$target/.gitignore"; then
+      pass "$name"
+    else
+      fail "$name" ".tmp/ not in .gitignore"
+    fi
+  fi
+
+  teardown
+}
+
+test_no_tmp_flag() {
+  local name="--no-tmp skips .tmp/ creation"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+
+  if ! "$SANDBOX_INIT" --no-tmp --no-md "$target" >/dev/null 2>&1; then
+    fail "$name" "command failed"
+    teardown
+    return
+  fi
+
+  if [[ -d "$target/.tmp" ]]; then
+    fail "$name" ".tmp/ was created despite --no-tmp"
+  elif [[ -f "$target/.gitignore" ]] && grep -qxF ".tmp/" "$target/.gitignore"; then
+    fail "$name" ".tmp/ was added to .gitignore despite --no-tmp"
+  else
+    pass "$name"
+  fi
+
+  teardown
+}
+
+test_tmp_no_overwrite() {
+  local name="does not overwrite a pre-existing .tmp/ directory"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target/.tmp"
+  echo "user data" > "$target/.tmp/user-file.txt"
+
+  if ! "$SANDBOX_INIT" "$target" >/dev/null 2>&1; then
+    fail "$name" "command failed"
+    teardown
+    return
+  fi
+
+  if [[ -f "$target/.tmp/user-file.txt" ]] && grep -q "user data" "$target/.tmp/user-file.txt"; then
+    pass "$name"
+  else
+    fail "$name" "pre-existing .tmp/ contents were lost"
+  fi
+
+  teardown
+}
+
+test_tmp_dry_run() {
+  local name="--dry-run announces .tmp/ creation plan but creates nothing"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+
+  local output
+  output=$("$SANDBOX_INIT" --dry-run "$target" 2>&1) || { fail "$name" "non-zero exit"; teardown; return; }
+
+  if [[ -d "$target/.tmp" ]]; then
+    fail "$name" "dry-run created .tmp/"
+  elif echo "$output" | grep -q "Would create.*\.tmp/"; then
+    pass "$name"
+  else
+    fail "$name" "missing 'Would create .tmp/' line"
+  fi
+
+  teardown
+}
+
 # --- Run ---
 
 echo "Running sandbox-init tests..."
@@ -595,6 +697,10 @@ test_no_md_flag
 test_md_no_overwrite
 test_md_dry_run
 test_md_gitignore_idempotent
+test_tmp_dir_created
+test_no_tmp_flag
+test_tmp_no_overwrite
+test_tmp_dry_run
 
 echo ""
 echo "Results: $TESTS_PASSED passed, $TESTS_FAILED failed, $TESTS_SKIPPED skipped"

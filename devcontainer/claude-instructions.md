@@ -13,6 +13,16 @@ When working in this project, follow these conventions.
 - Never use the system Python interpreter directly.
 - Always work inside an isolated environment (conda env or `venv`). Activate it before running scripts, installing packages, or invoking pytest.
 
+## Temporary files and scratch work
+
+- Never write temporary, scratch, or log files to `/tmp`. `/tmp` lives inside the container's overlay filesystem and is invisible to the IDE file tree, so anything written there is hard to investigate later and is wiped on container rebuild.
+- Use `.tmp/` at the project root instead. It is bind-mounted from the host (visible in VS Code / Cursor) and survives container rebuilds. It is gitignored.
+- Conventional layout inside `.tmp/`:
+  - `.tmp/runs/` — captured command output / log files
+  - `.tmp/scratch/` — throwaway scripts, ad-hoc test files
+  - `.tmp/notes/` — markdown summaries and findings worth preserving across sessions
+- Do not place large artifacts (>100 MB — model weights, large datasets, full corpora) in `.tmp/`. Use a real cache directory (e.g. `~/.cache/`) for those.
+
 ## Context compaction
 
 When compacting context, preserve in this priority order:

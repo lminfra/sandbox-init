@@ -14,6 +14,10 @@ INSTRUCTIONS_BUNDLED_NAME="claude-instructions.md"
 INSTRUCTIONS_TARGET_NAME="CLAUDE.md"
 INSTRUCTIONS_USER_PATH="${XDG_CONFIG_HOME:-$HOME/.config}/sbinit/${INSTRUCTIONS_BUNDLED_NAME}"
 
+# Project-root scratch directory (visible to IDE, gitignored, survives rebuilds)
+TMP_DIR_NAME=".tmp"
+TMP_SUBDIRS=("runs" "scratch" "notes")
+
 # Resolve the bundled devcontainer directory (relative to this script)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUNDLED_DIR="${SCRIPT_DIR}/devcontainer"
@@ -58,6 +62,7 @@ Options:
   --update            Fetch latest devcontainer files from GitHub
   --gpu               Add --gpus=all to runArgs for GPU passthrough
   --no-md             Do not seed CLAUDE.md with default Claude Code instructions
+  --no-tmp            Do not create .tmp/ scratch directory
   -v, --version       Print version
   -h, --help          Print this help
 
@@ -67,6 +72,12 @@ Claude Code seed:
   to .gitignore. If \$XDG_CONFIG_HOME/sbinit/${INSTRUCTIONS_BUNDLED_NAME}
   exists, it overrides the bundled default. Skipped if CLAUDE.md already
   exists, or with --no-md.
+
+Scratch directory:
+  By default, sbinit creates ${TMP_DIR_NAME}/ at the project root with
+  subdirs runs/, scratch/, notes/, and adds ${TMP_DIR_NAME}/ to .gitignore.
+  This is the IDE-visible alternative to /tmp; it survives container
+  rebuilds. Skip with --no-tmp.
 EOF
 }
 
@@ -169,6 +180,7 @@ USE_REMOTE=false
 DO_UPDATE=false
 GPU=false
 NO_MD=false
+NO_TMP=false
 TARGET=""
 
 while [[ $# -gt 0 ]]; do
@@ -218,6 +230,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-md)
       NO_MD=true
+      shift
+      ;;
+    --no-tmp)
+      NO_TMP=true
       shift
       ;;
     -*)
@@ -288,6 +304,14 @@ if [[ "$DRY_RUN" == true ]]; then
     fi
   done
   info "[dry-run] Would chmod +x init-firewall.sh"
+  if [[ "$NO_TMP" != true ]]; then
+    if [[ -d "$TARGET_DIR/$TMP_DIR_NAME" ]]; then
+      info "[dry-run] Would skip $TMP_DIR_NAME/ (already exists)"
+    else
+      info "[dry-run] Would create $TARGET_DIR/$TMP_DIR_NAME/ with subdirs: ${TMP_SUBDIRS[*]}"
+      info "[dry-run] Would add '$TMP_DIR_NAME/' to $TARGET_DIR/.gitignore"
+    fi
+  fi
   if [[ "$NO_MD" != true ]]; then
     if [[ -f "$TARGET_DIR/$INSTRUCTIONS_TARGET_NAME" ]]; then
       info "[dry-run] Would skip $INSTRUCTIONS_TARGET_NAME seed (already exists)"
@@ -355,6 +379,24 @@ if [[ "$GPU" == true ]]; then
     && mv "$DEVCONTAINER_DIR/devcontainer.json.tmp" "$DEVCONTAINER_DIR/devcontainer.json"
 fi
 
+# Create .tmp/ scratch directory (unless opted out)
+CREATED_TMP=false
+if [[ "$NO_TMP" != true ]]; then
+  if [[ -d "$TARGET_DIR/$TMP_DIR_NAME" ]]; then
+    info "Skipping $TMP_DIR_NAME/: $TARGET_DIR/$TMP_DIR_NAME already exists"
+  else
+    info "Creating $TARGET_DIR/$TMP_DIR_NAME/ with subdirs: ${TMP_SUBDIRS[*]}"
+    mkdir -p "$TARGET_DIR/$TMP_DIR_NAME"
+    for sub in "${TMP_SUBDIRS[@]}"; do
+      mkdir -p "$TARGET_DIR/$TMP_DIR_NAME/$sub"
+      touch "$TARGET_DIR/$TMP_DIR_NAME/$sub/.gitkeep"
+    done
+    ensure_gitignore_entry "$TMP_DIR_NAME/" "$TARGET_DIR/.gitignore"
+    info "Added '$TMP_DIR_NAME/' to $TARGET_DIR/.gitignore"
+    CREATED_TMP=true
+  fi
+fi
+
 # Seed CLAUDE.md with default Claude Code instructions (unless opted out)
 SEEDED_INSTRUCTIONS=false
 if [[ "$NO_MD" != true ]]; then
@@ -387,6 +429,9 @@ for file in "${FILES[@]}"; do
 done
 if [[ "$SEEDED_INSTRUCTIONS" == true ]]; then
   echo "  $INSTRUCTIONS_TARGET_NAME (seeded; gitignored)"
+fi
+if [[ "$CREATED_TMP" == true ]]; then
+  echo "  $TMP_DIR_NAME/ (scratch dir; gitignored)"
 fi
 echo ""
 echo "Next steps:"
