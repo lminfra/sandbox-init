@@ -967,7 +967,7 @@ test_skills_isolation_flags_host_default() {
 }
 
 test_skills_isolation_flags_devcontainer() {
-  local name="codex-exec.sh switches to bypass-sandbox when DEVCONTAINER=true"
+  local name="codex-exec.sh switches to --sandbox danger-full-access when DEVCONTAINER=true"
   setup
   local target="$TEST_DIR/project"
   mkdir -p "$target"
@@ -975,6 +975,50 @@ test_skills_isolation_flags_devcontainer() {
 
   local flags
   flags=$(DEVCONTAINER=true bash -c '
+    source <(sed -n "/^codex_isolation_flags()/,/^}/p" '"$target"'/.claude/skills/_lib/codex-exec.sh)
+    codex_isolation_flags | tr "\0" " "
+  ')
+
+  if echo "$flags" | grep -qE '\-\-sandbox +danger-full-access'; then
+    pass "$name"
+  else
+    fail "$name" "expected --sandbox danger-full-access; got: $flags"
+  fi
+
+  teardown
+}
+
+test_skills_isolation_flags_override_explicit_mode() {
+  local name="CODEX_SANDBOX_OVERRIDE=workspace-write picks that explicit mode"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+  "$SANDBOX_INIT" "$target" >/dev/null 2>&1 || { fail "$name" "sandbox-init failed"; teardown; return; }
+
+  local flags
+  flags=$(env -u DEVCONTAINER CODEX_SANDBOX_OVERRIDE=workspace-write bash -c '
+    source <(sed -n "/^codex_isolation_flags()/,/^}/p" '"$target"'/.claude/skills/_lib/codex-exec.sh)
+    codex_isolation_flags | tr "\0" " "
+  ')
+
+  if echo "$flags" | grep -qE '\-\-sandbox +workspace-write'; then
+    pass "$name"
+  else
+    fail "$name" "expected --sandbox workspace-write; got: $flags"
+  fi
+
+  teardown
+}
+
+test_skills_isolation_flags_override_bypass() {
+  local name="CODEX_SANDBOX_OVERRIDE=bypass uses --dangerously-bypass-approvals-and-sandbox"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+  "$SANDBOX_INIT" "$target" >/dev/null 2>&1 || { fail "$name" "sandbox-init failed"; teardown; return; }
+
+  local flags
+  flags=$(env -u DEVCONTAINER CODEX_SANDBOX_OVERRIDE=bypass bash -c '
     source <(sed -n "/^codex_isolation_flags()/,/^}/p" '"$target"'/.claude/skills/_lib/codex-exec.sh)
     codex_isolation_flags | tr "\0" " "
   ')
@@ -988,23 +1032,23 @@ test_skills_isolation_flags_devcontainer() {
   teardown
 }
 
-test_skills_isolation_flags_manual_override() {
-  local name="CODEX_REVIEW_BYPASS_SANDBOX=1 forces bypass even outside devcontainer"
+test_skills_isolation_flags_override_invalid() {
+  local name="CODEX_SANDBOX_OVERRIDE=garbage exits with helpful error"
   setup
   local target="$TEST_DIR/project"
   mkdir -p "$target"
   "$SANDBOX_INIT" "$target" >/dev/null 2>&1 || { fail "$name" "sandbox-init failed"; teardown; return; }
 
-  local flags
-  flags=$(env -u DEVCONTAINER CODEX_REVIEW_BYPASS_SANDBOX=1 bash -c '
-    source <(sed -n "/^codex_isolation_flags()/,/^}/p" '"$target"'/.claude/skills/_lib/codex-exec.sh)
-    codex_isolation_flags | tr "\0" " "
-  ')
+  local out rc=0
+  out=$(env -u DEVCONTAINER CODEX_SANDBOX_OVERRIDE=garbage bash -c '
+    source <(sed -n "/^die()/,/^}/p; /^codex_isolation_flags()/,/^}/p" '"$target"'/.claude/skills/_lib/codex-exec.sh)
+    codex_isolation_flags
+  ' 2>&1) || rc=$?
 
-  if echo "$flags" | grep -q "dangerously-bypass-approvals-and-sandbox"; then
+  if (( rc != 0 )) && echo "$out" | grep -q "invalid CODEX_SANDBOX_OVERRIDE"; then
     pass "$name"
   else
-    fail "$name" "expected dangerously-bypass flag; got: $flags"
+    fail "$name" "expected non-zero exit + helpful error; rc=$rc, out=$out"
   fi
 
   teardown
@@ -1108,7 +1152,9 @@ test_skills_dry_run
 test_skills_helper_executable
 test_skills_isolation_flags_host_default
 test_skills_isolation_flags_devcontainer
-test_skills_isolation_flags_manual_override
+test_skills_isolation_flags_override_explicit_mode
+test_skills_isolation_flags_override_bypass
+test_skills_isolation_flags_override_invalid
 test_skills_runs_dir_auto_created
 test_skills_prompt_amp_backslash_safe
 test_only_skills_creates_tree_only

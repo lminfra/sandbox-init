@@ -11,12 +11,13 @@ IFS=$'\n\t'
 # - Prompt is always piped via stdin with `-` as the prompt arg. Never argv.
 # - --model is always pinned explicitly (no silent fallback).
 # - ACK preflight runs before any heavy invocation.
-# - Default isolation: --sandbox read-only --skip-git-repo-check (review-only).
-#   Inside a devcontainer (DEVCONTAINER=true) or when CODEX_REVIEW_BYPASS_SANDBOX=1,
-#   we switch to --dangerously-bypass-approvals-and-sandbox because the container
-#   itself is the security boundary; Codex's bwrap-based sandbox needs unprivileged
-#   user namespaces which most devcontainers don't allow, so the inner sandbox
-#   either blocks every read or fails to initialize.
+# - Default isolation: `--sandbox read-only --skip-git-repo-check` on the host.
+#   Inside a devcontainer (DEVCONTAINER=true), auto-switches to
+#   `--sandbox danger-full-access` because Codex's bwrap-based sandbox
+#   modes (read-only, workspace-write) need unprivileged user namespaces
+#   which most container runtimes don't allow. The container itself is
+#   already the security boundary. CODEX_SANDBOX_OVERRIDE=<mode> lets users
+#   force any mode (read-only | workspace-write | danger-full-access | bypass).
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -49,28 +50,58 @@ require_codex() {
   fi
 }
 
-# Decide which isolation flags to pass to `codex exec`.
+# Decide which sandbox flags to pass to `codex exec`.
 #
-# Default (host): `--sandbox read-only --skip-git-repo-check` — Codex wraps its
-# shell tool in bwrap and the host kernel allows unprivileged user namespaces.
+# Codex offers four isolation modes, three sandbox policies plus one bypass:
+#   --sandbox read-only        Codex's shell tool can only read; wraps in bwrap.
+#   --sandbox workspace-write  Codex's shell tool can read + write workspace; wraps in bwrap.
+#   --sandbox danger-full-access  Codex's shell tool runs unrestricted, no bwrap wrap.
+#   --dangerously-bypass-approvals-and-sandbox  Skips both approvals and bwrap entirely.
 #
-# Devcontainer / externally-sandboxed env: bwrap fails with "No permissions to
-# create a new namespace" and Codex can read nothing, defeating the review.
-# Switch to `--dangerously-bypass-approvals-and-sandbox`, which Codex documents
-# as "intended solely for running in environments that are externally sandboxed."
+# Resolution order (first match wins):
+#   1. CODEX_SANDBOX_OVERRIDE env var — explicit user choice. Values:
+#        read-only | workspace-write | danger-full-access | bypass
+#   2. DEVCONTAINER=true (set by the bundled Dockerfile) → danger-full-access
+#   3. Default → read-only
+#
+# Why `danger-full-access` (not bypass) for devcontainer auto-detection:
+#   The three `--sandbox` modes that wrap in bwrap require unprivileged user
+#   namespaces, which most container runtimes don't allow — so `--sandbox
+#   read-only` and `--sandbox workspace-write` fail with "bwrap: No permissions
+#   to create a new namespace" and Codex can read nothing. The `danger-full-access`
+#   mode skips the bwrap wrap, so it works in containers where bwrap is broken.
+#   This is the empirically-confirmed working flag inside our devcontainer.
+#   `--dangerously-bypass-approvals-and-sandbox` *also* skips bwrap and is
+#   semantically equivalent for review-only invocations, but pinning a specific
+#   `--sandbox` policy is more explicit about what permissions Codex's shell
+#   tool gets, so we prefer it.
+#
 # Inside our devcontainer the security boundary is already the firewall +
 # bind-mounted workspace + per-project isolation; the inner bwrap layer is
-# redundant defense, not load-bearing.
-#
-# Triggers (any of):
-#   - DEVCONTAINER=true (set by the bundled Dockerfile)
-#   - CODEX_REVIEW_BYPASS_SANDBOX=1 (manual override for other sandboxed envs)
+# redundant defense, not load-bearing. The blast radius if Codex is prompt-
+# injected is identical to Claude Code's own (which already runs with
+# --dangerously-skip-permissions in the same container).
 codex_isolation_flags() {
-  if [[ "${DEVCONTAINER:-}" == "true" || "${CODEX_REVIEW_BYPASS_SANDBOX:-}" == "1" ]]; then
-    printf '%s\0%s\0' "--dangerously-bypass-approvals-and-sandbox" "--skip-git-repo-check"
+  local mode
+  if [[ -n "${CODEX_SANDBOX_OVERRIDE:-}" ]]; then
+    mode="$CODEX_SANDBOX_OVERRIDE"
+  elif [[ "${DEVCONTAINER:-}" == "true" ]]; then
+    mode="danger-full-access"
   else
-    printf '%s\0%s\0%s\0' "--sandbox" "read-only" "--skip-git-repo-check"
+    mode="read-only"
   fi
+
+  case "$mode" in
+    read-only|workspace-write|danger-full-access)
+      printf '%s\0%s\0%s\0' "--sandbox" "$mode" "--skip-git-repo-check"
+      ;;
+    bypass)
+      printf '%s\0%s\0' "--dangerously-bypass-approvals-and-sandbox" "--skip-git-repo-check"
+      ;;
+    *)
+      die "invalid CODEX_SANDBOX_OVERRIDE='$mode' (expected: read-only | workspace-write | danger-full-access | bypass)"
+      ;;
+  esac
 }
 
 # Read codex_isolation_flags into a bash array (NUL-separated, robust to spaces).
