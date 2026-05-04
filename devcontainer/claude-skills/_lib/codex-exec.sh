@@ -11,14 +11,18 @@ IFS=$'\n\t'
 # - Prompt is always piped via stdin with `-` as the prompt arg. Never argv.
 # - --model is always pinned explicitly (no silent fallback).
 # - ACK preflight runs before any heavy invocation.
-# - --sandbox read-only --skip-git-repo-check on every call (review-only).
+# - Default isolation: --sandbox read-only --skip-git-repo-check (review-only).
+#   Inside a devcontainer (DEVCONTAINER=true) or when CODEX_REVIEW_BYPASS_SANDBOX=1,
+#   we switch to --dangerously-bypass-approvals-and-sandbox because the container
+#   itself is the security boundary; Codex's bwrap-based sandbox needs unprivileged
+#   user namespaces which most devcontainers don't allow, so the inner sandbox
+#   either blocks every read or fails to initialize.
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
 MODEL="gpt-5.5"
-SANDBOX="read-only"
 ACK_TIMEOUT=15
 REVIEW_TIMEOUT=600
 
@@ -45,6 +49,40 @@ require_codex() {
   fi
 }
 
+# Decide which isolation flags to pass to `codex exec`.
+#
+# Default (host): `--sandbox read-only --skip-git-repo-check` — Codex wraps its
+# shell tool in bwrap and the host kernel allows unprivileged user namespaces.
+#
+# Devcontainer / externally-sandboxed env: bwrap fails with "No permissions to
+# create a new namespace" and Codex can read nothing, defeating the review.
+# Switch to `--dangerously-bypass-approvals-and-sandbox`, which Codex documents
+# as "intended solely for running in environments that are externally sandboxed."
+# Inside our devcontainer the security boundary is already the firewall +
+# bind-mounted workspace + per-project isolation; the inner bwrap layer is
+# redundant defense, not load-bearing.
+#
+# Triggers (any of):
+#   - DEVCONTAINER=true (set by the bundled Dockerfile)
+#   - CODEX_REVIEW_BYPASS_SANDBOX=1 (manual override for other sandboxed envs)
+codex_isolation_flags() {
+  if [[ "${DEVCONTAINER:-}" == "true" || "${CODEX_REVIEW_BYPASS_SANDBOX:-}" == "1" ]]; then
+    printf '%s\0%s\0' "--dangerously-bypass-approvals-and-sandbox" "--skip-git-repo-check"
+  else
+    printf '%s\0%s\0%s\0' "--sandbox" "read-only" "--skip-git-repo-check"
+  fi
+}
+
+# Read codex_isolation_flags into a bash array (NUL-separated, robust to spaces).
+read_isolation_flags() {
+  local raw
+  raw=$(codex_isolation_flags)
+  ISOLATION_FLAGS=()
+  while IFS= read -r -d '' f; do
+    ISOLATION_FLAGS+=("$f")
+  done < <(printf '%s' "$raw")
+}
+
 ack_preflight() {
   local mode="$1"
   info "ACK preflight (model=$MODEL, mode=$mode)..."
@@ -52,7 +90,8 @@ ack_preflight() {
   # Use stdin (not argv) for the ACK prompt, mirroring the heavy-review path.
   # The argv form would violate the locked stdin-only constraint and reproduce
   # the prior multi-KB hang class of bug if anyone copied this pattern.
-  out=$(printf '%s\n' "reply ACK mode=$mode" | timeout "$ACK_TIMEOUT" codex exec --model "$MODEL" --sandbox "$SANDBOX" --skip-git-repo-check - 2>&1) || rc=$?
+  read_isolation_flags
+  out=$(printf '%s\n' "reply ACK mode=$mode" | timeout "$ACK_TIMEOUT" codex exec --model "$MODEL" "${ISOLATION_FLAGS[@]}" - 2>&1) || rc=$?
   if (( rc != 0 )); then
     if echo "$out" | grep -qiE "model not found|requires.*newer.*version|unknown model"; then
       die "Codex rejected --model $MODEL. Try: npm install -g @openai/codex@latest"
@@ -102,7 +141,8 @@ escape_for_subst() {
 
 # Redact obvious secrets in environment for command capture
 redact_env_for_command() {
-  echo "codex exec --model $MODEL --sandbox $SANDBOX --skip-git-repo-check - < <prompt>"
+  read_isolation_flags
+  echo "codex exec --model $MODEL ${ISOLATION_FLAGS[*]} - < <prompt>"
 }
 
 # ---------------------------------------------------------------------------
@@ -112,14 +152,21 @@ redact_env_for_command() {
 resolve_run_dir() {
   local mode="$1"
   local ts; ts=$(date +%Y%m%dT%H%M%S)
-  local base
-  if [[ -d ".tmp/runs" ]]; then
-    base=".tmp/runs"
-  else
-    warn ".tmp/runs/ not found; falling back to /tmp (durability lost)"
-    base="/tmp"
+  # Prefer the project-local .tmp/runs/ (IDE-visible, survives container rebuild,
+  # gitignored by sbinit's preventive pattern). If it doesn't exist, create it
+  # rather than silently falling back to /tmp — auto-creating a single empty
+  # directory is cheaper than burying review artifacts where the user can't see
+  # them. Idempotent and safe to run repeatedly.
+  if [[ ! -d ".tmp/runs" ]]; then
+    if mkdir -p ".tmp/runs" 2>/dev/null; then
+      info "Created .tmp/runs/ for review artifacts"
+    else
+      warn ".tmp/runs/ could not be created; falling back to /tmp (durability lost)"
+      echo "/tmp/codex-review-${ts}-${mode}"
+      return 0
+    fi
   fi
-  echo "$base/codex-review-${ts}-${mode}"
+  echo ".tmp/runs/codex-review-${ts}-${mode}"
 }
 
 # ---------------------------------------------------------------------------
@@ -517,12 +564,13 @@ main() {
   local prompt_bytes; prompt_bytes=$(byte_size "$prompt_path")
   info "Sending $mode review prompt to codex ($prompt_bytes bytes via stdin; artifact dir: $run_dir)..."
 
+  read_isolation_flags
   local started_at; started_at=$(date +%s%N)
   local exit_code=0
   # Capture exit status correctly: `if ! cmd; then exit_code=$?` records the
   # *negated* status (0 when cmd failed, 1 when it succeeded), inverting the
   # logic. Use `cmd || exit_code=$?` to record the actual status.
-  timeout "$REVIEW_TIMEOUT" codex exec --model "$MODEL" --sandbox "$SANDBOX" --skip-git-repo-check - \
+  timeout "$REVIEW_TIMEOUT" codex exec --model "$MODEL" "${ISOLATION_FLAGS[@]}" - \
         < "$prompt_path" > >(tee "$stdout_path") 2> >(tee "$stderr_path" >&2) \
         || exit_code=$?
   if (( exit_code != 0 )); then

@@ -944,6 +944,108 @@ STUB
   teardown
 }
 
+test_skills_isolation_flags_host_default() {
+  local name="codex-exec.sh selects --sandbox read-only when not in devcontainer"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+  "$SANDBOX_INIT" "$target" >/dev/null 2>&1 || { fail "$name" "sandbox-init failed"; teardown; return; }
+
+  local flags
+  flags=$(env -u DEVCONTAINER -u CODEX_REVIEW_BYPASS_SANDBOX bash -c '
+    source <(sed -n "/^codex_isolation_flags()/,/^}/p" '"$target"'/.claude/skills/_lib/codex-exec.sh)
+    codex_isolation_flags | tr "\0" " "
+  ')
+
+  if echo "$flags" | grep -qE '\-\-sandbox +read-only' && ! echo "$flags" | grep -q "dangerously"; then
+    pass "$name"
+  else
+    fail "$name" "unexpected flags: $flags"
+  fi
+
+  teardown
+}
+
+test_skills_isolation_flags_devcontainer() {
+  local name="codex-exec.sh switches to bypass-sandbox when DEVCONTAINER=true"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+  "$SANDBOX_INIT" "$target" >/dev/null 2>&1 || { fail "$name" "sandbox-init failed"; teardown; return; }
+
+  local flags
+  flags=$(DEVCONTAINER=true bash -c '
+    source <(sed -n "/^codex_isolation_flags()/,/^}/p" '"$target"'/.claude/skills/_lib/codex-exec.sh)
+    codex_isolation_flags | tr "\0" " "
+  ')
+
+  if echo "$flags" | grep -q "dangerously-bypass-approvals-and-sandbox"; then
+    pass "$name"
+  else
+    fail "$name" "expected dangerously-bypass flag; got: $flags"
+  fi
+
+  teardown
+}
+
+test_skills_isolation_flags_manual_override() {
+  local name="CODEX_REVIEW_BYPASS_SANDBOX=1 forces bypass even outside devcontainer"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+  "$SANDBOX_INIT" "$target" >/dev/null 2>&1 || { fail "$name" "sandbox-init failed"; teardown; return; }
+
+  local flags
+  flags=$(env -u DEVCONTAINER CODEX_REVIEW_BYPASS_SANDBOX=1 bash -c '
+    source <(sed -n "/^codex_isolation_flags()/,/^}/p" '"$target"'/.claude/skills/_lib/codex-exec.sh)
+    codex_isolation_flags | tr "\0" " "
+  ')
+
+  if echo "$flags" | grep -q "dangerously-bypass-approvals-and-sandbox"; then
+    pass "$name"
+  else
+    fail "$name" "expected dangerously-bypass flag; got: $flags"
+  fi
+
+  teardown
+}
+
+test_skills_runs_dir_auto_created() {
+  local name="codex-exec.sh auto-creates .tmp/runs/ if missing (no fall-through to /tmp)"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+  # Set up project without .tmp/ (use --no-tmp flag)
+  "$SANDBOX_INIT" --no-tmp "$target" >/dev/null 2>&1 || { fail "$name" "sandbox-init failed"; teardown; return; }
+  [[ -d "$target/.tmp" ]] && { fail "$name" ".tmp/ already exists; test premise broken"; teardown; return; }
+
+  # Stub codex so we exercise resolve_run_dir without a real call
+  mkdir -p "$target/stub-bin"
+  cat > "$target/stub-bin/codex" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+  chmod +x "$target/stub-bin/codex"
+
+  cat > "$target/test-plan.md" <<'EOF'
+# Test
+- A short plan
+EOF
+
+  (
+    cd "$target" || exit 1
+    PATH="$target/stub-bin:$PATH" bash .claude/skills/_lib/codex-exec.sh plan test-plan.md >/dev/null 2>&1
+  )
+
+  if [[ -d "$target/.tmp/runs" ]]; then
+    pass "$name"
+  else
+    fail "$name" ".tmp/runs/ was not auto-created"
+  fi
+
+  teardown
+}
+
 test_skills_helper_executable() {
   local name="codex-exec.sh has executable bit set after seed"
   setup
@@ -1004,6 +1106,10 @@ test_no_skills_flag
 test_skills_no_overwrite
 test_skills_dry_run
 test_skills_helper_executable
+test_skills_isolation_flags_host_default
+test_skills_isolation_flags_devcontainer
+test_skills_isolation_flags_manual_override
+test_skills_runs_dir_auto_created
 test_skills_prompt_amp_backslash_safe
 test_only_skills_creates_tree_only
 test_only_skills_preserves_custom_skill
