@@ -667,6 +667,183 @@ test_tmp_dry_run() {
   teardown
 }
 
+test_skills_seeded_by_default() {
+  local name="seeds .claude/skills/ tree by default"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+
+  if ! "$SANDBOX_INIT" "$target" >/dev/null 2>&1; then
+    fail "$name" "command failed"
+    teardown
+    return
+  fi
+
+  local ok=true
+  for mode in plan impl results codebase; do
+    if [[ ! -f "$target/.claude/skills/review-$mode/SKILL.md" ]]; then
+      fail "$name" "missing review-$mode/SKILL.md"
+      ok=false
+      break
+    fi
+    if [[ ! -f "$target/.claude/skills/review-$mode/prompt-template.md" ]]; then
+      fail "$name" "missing review-$mode/prompt-template.md"
+      ok=false
+      break
+    fi
+  done
+
+  if [[ "$ok" == true ]]; then
+    if [[ ! -f "$target/.claude/skills/_lib/codex-exec.sh" ]]; then
+      fail "$name" "missing _lib/codex-exec.sh"
+    elif [[ ! -f "$target/.claude/skills/_lib/preamble.md" ]]; then
+      fail "$name" "missing _lib/preamble.md"
+    else
+      pass "$name"
+    fi
+  fi
+
+  teardown
+}
+
+test_no_skills_flag() {
+  local name="--no-skills skips skill tree creation"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+
+  if ! "$SANDBOX_INIT" --no-skills --no-md --no-tmp "$target" >/dev/null 2>&1; then
+    fail "$name" "command failed"
+    teardown
+    return
+  fi
+
+  if [[ -d "$target/.claude/skills" ]]; then
+    fail "$name" ".claude/skills/ created despite --no-skills"
+  else
+    pass "$name"
+  fi
+
+  teardown
+}
+
+test_skills_no_overwrite() {
+  local name="does not overwrite a pre-existing .claude/skills/ tree"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target/.claude/skills/custom-skill"
+  echo "USER" > "$target/.claude/skills/custom-skill/SKILL.md"
+
+  local output
+  output=$("$SANDBOX_INIT" "$target" 2>&1) || { fail "$name" "command failed"; teardown; return; }
+
+  if grep -q "USER" "$target/.claude/skills/custom-skill/SKILL.md" \
+      && echo "$output" | grep -qi "skipping"; then
+    pass "$name"
+  else
+    fail "$name" "pre-existing skills tree was modified or no skip message"
+  fi
+
+  teardown
+}
+
+test_skills_dry_run() {
+  local name="--dry-run announces .claude/skills/ seed plan and creates nothing"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+
+  local output
+  output=$("$SANDBOX_INIT" --dry-run "$target" 2>&1) || { fail "$name" "non-zero exit"; teardown; return; }
+
+  if [[ -d "$target/.claude/skills" ]]; then
+    fail "$name" "dry-run created skills tree"
+  elif echo "$output" | grep -q "Would copy.*claude-skills"; then
+    pass "$name"
+  else
+    fail "$name" "missing 'Would copy ... claude-skills' line"
+  fi
+
+  teardown
+}
+
+test_skills_prompt_amp_backslash_safe() {
+  local name="codex-exec.sh prompt assembly preserves & and \\ in body content"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+
+  if ! "$SANDBOX_INIT" "$target" >/dev/null 2>&1; then
+    fail "$name" "sandbox-init failed"
+    teardown
+    return
+  fi
+
+  # Plan content with characters that historically corrupted the prompt
+  # (awk/bash-5 treat & as a back-reference; backslash is also special).
+  cat > "$target/test-plan.md" <<'EOF'
+# Plan
+- Use `npm install && npm test`
+- Capture: `cmd 2>&1 | tee log`
+- Path: `\\server\share`
+- Literal placeholder: {{NESTED}}
+EOF
+
+  # Stub codex so we exercise prompt assembly without firing the real CLI.
+  mkdir -p "$target/stub-bin"
+  cat > "$target/stub-bin/codex" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+  chmod +x "$target/stub-bin/codex"
+
+  (
+    cd "$target" || exit 1
+    PATH="$target/stub-bin:$PATH" bash .claude/skills/_lib/codex-exec.sh plan test-plan.md >/dev/null 2>&1
+  )
+
+  local prompt
+  prompt=$(find "$target/.tmp/runs" -name prompt.md -type f 2>/dev/null | head -1)
+  if [[ -z "$prompt" ]]; then
+    fail "$name" "no prompt.md was written"
+    teardown
+    return
+  fi
+
+  if grep -qF '{{PLAN_BODY}}' "$prompt"; then
+    fail "$name" "{{PLAN_BODY}} placeholder leaked into prompt (& or \\ corruption)"
+  elif ! grep -qF 'npm install && npm test' "$prompt"; then
+    fail "$name" "literal '&&' was not preserved in prompt"
+  elif ! grep -qF '2>&1' "$prompt"; then
+    fail "$name" "literal '2>&1' was not preserved in prompt"
+  else
+    pass "$name"
+  fi
+
+  teardown
+}
+
+test_skills_helper_executable() {
+  local name="codex-exec.sh has executable bit set after seed"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+
+  if ! "$SANDBOX_INIT" "$target" >/dev/null 2>&1; then
+    fail "$name" "command failed"
+    teardown
+    return
+  fi
+
+  if [[ -x "$target/.claude/skills/_lib/codex-exec.sh" ]]; then
+    pass "$name"
+  else
+    fail "$name" "codex-exec.sh is not executable"
+  fi
+
+  teardown
+}
+
 # --- Run ---
 
 echo "Running sandbox-init tests..."
@@ -701,6 +878,12 @@ test_tmp_dir_created
 test_no_tmp_flag
 test_tmp_no_overwrite
 test_tmp_dry_run
+test_skills_seeded_by_default
+test_no_skills_flag
+test_skills_no_overwrite
+test_skills_dry_run
+test_skills_helper_executable
+test_skills_prompt_amp_backslash_safe
 
 echo ""
 echo "Results: $TESTS_PASSED passed, $TESTS_FAILED failed, $TESTS_SKIPPED skipped"

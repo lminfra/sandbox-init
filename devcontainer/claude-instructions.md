@@ -33,6 +33,17 @@ When compacting context, preserve in this priority order:
 4. Open TODOs and rollback notes
 5. Tool outputs — keep the pass/fail summary only, drop verbose stdout/stderr
 
+## Codex reviews
+
+When the user asks for a second opinion or to "have Codex review" something, invoke one of the bundled review skills rather than calling `codex` directly:
+
+- `review-plan` — review a plan document before implementation begins
+- `review-impl` — review changed files / diffs / branches
+- `review-results` — review run logs, test output, benchmark output
+- `review-codebase` — broad architectural / sanity review
+
+Each skill handles ACK preflight, model pinning, prompt construction, stdin piping, and persistent artifact storage in `.tmp/runs/codex-review-<ts>-<mode>/`. After invoking, surface the verdict line and the tagged bullet list verbatim — do not restate.
+
 ## Notes
 
 This file was seeded by `sbinit`. It applies to this project only. Edit freely to add project-specific conventions; the bundled defaults won't overwrite your changes once this file exists.

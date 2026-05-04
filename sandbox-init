@@ -18,6 +18,10 @@ INSTRUCTIONS_USER_PATH="${XDG_CONFIG_HOME:-$HOME/.config}/sbinit/${INSTRUCTIONS_
 TMP_DIR_NAME=".tmp"
 TMP_SUBDIRS=("runs" "scratch" "notes")
 
+# Codex review skills (bundled tree, copied to <project>/.claude/skills/)
+SKILLS_BUNDLED_NAME="claude-skills"
+SKILLS_TARGET_PATH=".claude/skills"
+
 # Resolve the bundled devcontainer directory (relative to this script)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUNDLED_DIR="${SCRIPT_DIR}/devcontainer"
@@ -63,6 +67,7 @@ Options:
   --gpu               Add --gpus=all to runArgs for GPU passthrough
   --no-md             Do not seed CLAUDE.md with default Claude Code instructions
   --no-tmp            Do not create .tmp/ scratch directory
+  --no-skills         Do not seed .claude/skills/ codex-review skills
   -v, --version       Print version
   -h, --help          Print this help
 
@@ -78,6 +83,13 @@ Scratch directory:
   subdirs runs/, scratch/, notes/, and adds ${TMP_DIR_NAME}/ to .gitignore.
   This is the IDE-visible alternative to /tmp; it survives container
   rebuilds. Skip with --no-tmp.
+
+Codex review skills:
+  By default, sbinit copies four Claude Code skills into
+  <project>/${SKILLS_TARGET_PATH}/ for delegating reviews to Codex
+  (review-plan, review-impl, review-results, review-codebase) plus a
+  shared helper at _lib/codex-exec.sh. Not gitignored — project tooling.
+  Skip with --no-skills. Requires bundled mode (not --remote).
 EOF
 }
 
@@ -181,6 +193,7 @@ DO_UPDATE=false
 GPU=false
 NO_MD=false
 NO_TMP=false
+NO_SKILLS=false
 TARGET=""
 
 while [[ $# -gt 0 ]]; do
@@ -234,6 +247,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-tmp)
       NO_TMP=true
+      shift
+      ;;
+    --no-skills)
+      NO_SKILLS=true
       shift
       ;;
     -*)
@@ -310,6 +327,15 @@ if [[ "$DRY_RUN" == true ]]; then
     else
       info "[dry-run] Would create $TARGET_DIR/$TMP_DIR_NAME/ with subdirs: ${TMP_SUBDIRS[*]}"
       info "[dry-run] Would add '$TMP_DIR_NAME/' to $TARGET_DIR/.gitignore"
+    fi
+  fi
+  if [[ "$NO_SKILLS" != true ]]; then
+    if [[ -d "$TARGET_DIR/$SKILLS_TARGET_PATH" ]]; then
+      info "[dry-run] Would skip $SKILLS_TARGET_PATH/ (already exists)"
+    elif [[ ! -d "$BUNDLED_DIR/$SKILLS_BUNDLED_NAME" ]]; then
+      info "[dry-run] Would skip $SKILLS_TARGET_PATH/ seed (no bundled skills found at $BUNDLED_DIR/$SKILLS_BUNDLED_NAME)"
+    else
+      info "[dry-run] Would copy $BUNDLED_DIR/$SKILLS_BUNDLED_NAME/ to $TARGET_DIR/$SKILLS_TARGET_PATH/"
     fi
   fi
   if [[ "$NO_MD" != true ]]; then
@@ -397,6 +423,24 @@ if [[ "$NO_TMP" != true ]]; then
   fi
 fi
 
+# Seed .claude/skills/ codex-review skill tree (unless opted out)
+SEEDED_SKILLS=false
+if [[ "$NO_SKILLS" != true ]]; then
+  if [[ -d "$TARGET_DIR/$SKILLS_TARGET_PATH" ]]; then
+    info "Skipping $SKILLS_TARGET_PATH/: $TARGET_DIR/$SKILLS_TARGET_PATH already exists"
+  elif [[ ! -d "$BUNDLED_DIR/$SKILLS_BUNDLED_NAME" ]]; then
+    warn "No bundled skills at $BUNDLED_DIR/$SKILLS_BUNDLED_NAME — skipping skills seed (use bundled mode, not --remote, to seed skills)"
+  else
+    info "Seeding $SKILLS_TARGET_PATH/ from $BUNDLED_DIR/$SKILLS_BUNDLED_NAME/..."
+    mkdir -p "$TARGET_DIR/.claude"
+    cp -r "$BUNDLED_DIR/$SKILLS_BUNDLED_NAME/." "$TARGET_DIR/$SKILLS_TARGET_PATH"
+    if [[ -f "$TARGET_DIR/$SKILLS_TARGET_PATH/_lib/codex-exec.sh" ]]; then
+      chmod +x "$TARGET_DIR/$SKILLS_TARGET_PATH/_lib/codex-exec.sh"
+    fi
+    SEEDED_SKILLS=true
+  fi
+fi
+
 # Seed CLAUDE.md with default Claude Code instructions (unless opted out)
 SEEDED_INSTRUCTIONS=false
 if [[ "$NO_MD" != true ]]; then
@@ -432,6 +476,9 @@ if [[ "$SEEDED_INSTRUCTIONS" == true ]]; then
 fi
 if [[ "$CREATED_TMP" == true ]]; then
   echo "  $TMP_DIR_NAME/ (scratch dir; gitignored)"
+fi
+if [[ "$SEEDED_SKILLS" == true ]]; then
+  echo "  $SKILLS_TARGET_PATH/ (4 codex-review skills + helper)"
 fi
 echo ""
 echo "Next steps:"
