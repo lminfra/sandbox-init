@@ -767,6 +767,51 @@ test_skills_dry_run() {
   teardown
 }
 
+test_replaymaster_gitignore_entry() {
+  local name=".replaymaster/ is added to .gitignore by default (preventive)"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+
+  if ! "$SANDBOX_INIT" "$target" >/dev/null 2>&1; then
+    fail "$name" "command failed"
+    teardown
+    return
+  fi
+
+  if [[ -f "$target/.gitignore" ]] && grep -qxF ".replaymaster/" "$target/.gitignore"; then
+    pass "$name"
+  else
+    fail "$name" ".replaymaster/ not in .gitignore"
+  fi
+
+  teardown
+}
+
+test_replaymaster_gitignore_idempotent() {
+  local name=".replaymaster/ entry not duplicated if already in .gitignore"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+  printf 'node_modules\n.replaymaster/\n' > "$target/.gitignore"
+
+  if ! "$SANDBOX_INIT" "$target" >/dev/null 2>&1; then
+    fail "$name" "command failed"
+    teardown
+    return
+  fi
+
+  local count
+  count=$(grep -cxF ".replaymaster/" "$target/.gitignore")
+  if [[ "$count" -eq 1 ]]; then
+    pass "$name"
+  else
+    fail "$name" "expected 1 '.replaymaster/' line, got $count"
+  fi
+
+  teardown
+}
+
 test_only_skills_creates_tree_only() {
   local name="--only-skills creates .claude/skills/ but no .devcontainer/, .tmp/, CLAUDE.md"
   setup
@@ -963,6 +1008,8 @@ test_skills_prompt_amp_backslash_safe
 test_only_skills_creates_tree_only
 test_only_skills_preserves_custom_skill
 test_only_skills_dry_run
+test_replaymaster_gitignore_entry
+test_replaymaster_gitignore_idempotent
 
 echo ""
 echo "Results: $TESTS_PASSED passed, $TESTS_FAILED failed, $TESTS_SKIPPED skipped"

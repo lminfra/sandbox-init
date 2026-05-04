@@ -22,6 +22,10 @@ TMP_SUBDIRS=("runs" "scratch" "notes")
 SKILLS_BUNDLED_NAME="claude-skills"
 SKILLS_TARGET_PATH=".claude/skills"
 
+# Preventive .gitignore entries for tools the user is likely to run inside
+# the project (e.g. ReplayMaster recordings). Added always; idempotent.
+PREVENTIVE_GITIGNORE_ENTRIES=(".replaymaster/")
+
 # Resolve the bundled devcontainer directory (relative to this script)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUNDLED_DIR="${SCRIPT_DIR}/devcontainer"
@@ -84,6 +88,12 @@ Scratch directory:
   subdirs runs/, scratch/, notes/, and adds ${TMP_DIR_NAME}/ to .gitignore.
   This is the IDE-visible alternative to /tmp; it survives container
   rebuilds. Skip with --no-tmp.
+
+Preventive .gitignore entries:
+  Regardless of flags, sbinit ensures certain paths are in
+  <project>/.gitignore so artifacts from common tools never leak
+  into git tracking. Currently: .replaymaster/ (recordings made by
+  the ReplayMaster session-capture tool, if used).
 
 Codex review skills:
   By default, sbinit copies four Claude Code skills into
@@ -366,6 +376,9 @@ if [[ "$DRY_RUN" == true ]]; then
       info "[dry-run] Would add '$TMP_DIR_NAME/' to $TARGET_DIR/.gitignore"
     fi
   fi
+  for _entry in "${PREVENTIVE_GITIGNORE_ENTRIES[@]}"; do
+    info "[dry-run] Would ensure '$_entry' is in $TARGET_DIR/.gitignore (preventive)"
+  done
   if [[ "$NO_SKILLS" != true ]]; then
     if [[ -d "$TARGET_DIR/$SKILLS_TARGET_PATH" ]]; then
       info "[dry-run] Would skip $SKILLS_TARGET_PATH/ (already exists)"
@@ -459,6 +472,15 @@ if [[ "$NO_TMP" != true ]]; then
     CREATED_TMP=true
   fi
 fi
+
+# Preventive .gitignore entries (always-on hygiene; never opted out)
+for _entry in "${PREVENTIVE_GITIGNORE_ENTRIES[@]}"; do
+  if [[ -f "$TARGET_DIR/.gitignore" ]] && grep -qxF "$_entry" "$TARGET_DIR/.gitignore"; then
+    continue
+  fi
+  ensure_gitignore_entry "$_entry" "$TARGET_DIR/.gitignore"
+  info "Added '$_entry' to $TARGET_DIR/.gitignore (preventive)"
+done
 
 # Seed .claude/skills/ codex-review skill tree (unless opted out)
 SEEDED_SKILLS=false
