@@ -68,6 +68,7 @@ Options:
   --no-md             Do not seed CLAUDE.md with default Claude Code instructions
   --no-tmp            Do not create .tmp/ scratch directory
   --no-skills         Do not seed .claude/skills/ codex-review skills
+  --only-skills       Refresh just .claude/skills/ in TARGET_DIR; touch nothing else
   -v, --version       Print version
   -h, --help          Print this help
 
@@ -90,6 +91,11 @@ Codex review skills:
   (review-plan, review-impl, review-results, review-codebase) plus a
   shared helper at _lib/codex-exec.sh. Not gitignored — project tooling.
   Skip with --no-skills. Requires bundled mode (not --remote).
+
+  Use --only-skills to refresh just the skill tree in an existing
+  project (skip devcontainer, .tmp/, CLAUDE.md). Bundled review-* and
+  _lib/ files are overwritten; any custom skills under .claude/skills/
+  are preserved.
 EOF
 }
 
@@ -194,6 +200,7 @@ GPU=false
 NO_MD=false
 NO_TMP=false
 NO_SKILLS=false
+ONLY_SKILLS=false
 TARGET=""
 
 while [[ $# -gt 0 ]]; do
@@ -253,6 +260,10 @@ while [[ $# -gt 0 ]]; do
       NO_SKILLS=true
       shift
       ;;
+    --only-skills)
+      ONLY_SKILLS=true
+      shift
+      ;;
     -*)
       die "Unknown option: $1 (see --help)"
       ;;
@@ -281,6 +292,32 @@ fi
 
 # Validate target
 [[ -d "$TARGET_DIR" ]] || die "Target directory does not exist: $TARGET_DIR"
+
+# Handle --only-skills as an early-exit: copy / refresh just the skill tree
+# into <TARGET>/.claude/skills/, leaving everything else (.devcontainer/,
+# .tmp/, CLAUDE.md, .gitignore) untouched. `cp -r src/. dst/` merges, so
+# user-added skills under .claude/skills/ are preserved; only the bundled
+# review-* and _lib/ files get refreshed.
+if [[ "$ONLY_SKILLS" == true ]]; then
+  if [[ ! -d "$BUNDLED_DIR/$SKILLS_BUNDLED_NAME" ]]; then
+    die "No bundled skills at $BUNDLED_DIR/$SKILLS_BUNDLED_NAME (use bundled mode, not --remote)"
+  fi
+  if [[ "$DRY_RUN" == true ]]; then
+    if [[ -d "$TARGET_DIR/$SKILLS_TARGET_PATH" ]]; then
+      info "[dry-run] Would merge $BUNDLED_DIR/$SKILLS_BUNDLED_NAME/ into existing $TARGET_DIR/$SKILLS_TARGET_PATH/ (refresh bundled, preserve custom)"
+    else
+      info "[dry-run] Would create $TARGET_DIR/$SKILLS_TARGET_PATH/ from $BUNDLED_DIR/$SKILLS_BUNDLED_NAME/"
+    fi
+    exit 0
+  fi
+  mkdir -p "$TARGET_DIR/$SKILLS_TARGET_PATH"
+  cp -r "$BUNDLED_DIR/$SKILLS_BUNDLED_NAME/." "$TARGET_DIR/$SKILLS_TARGET_PATH"
+  if [[ -f "$TARGET_DIR/$SKILLS_TARGET_PATH/_lib/codex-exec.sh" ]]; then
+    chmod +x "$TARGET_DIR/$SKILLS_TARGET_PATH/_lib/codex-exec.sh"
+  fi
+  info "Refreshed $TARGET_DIR/$SKILLS_TARGET_PATH/ from bundled skills"
+  exit 0
+fi
 
 DEVCONTAINER_DIR="$TARGET_DIR/.devcontainer"
 BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/${REPO_PATH}"

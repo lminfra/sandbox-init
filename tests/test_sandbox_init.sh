@@ -767,6 +767,82 @@ test_skills_dry_run() {
   teardown
 }
 
+test_only_skills_creates_tree_only() {
+  local name="--only-skills creates .claude/skills/ but no .devcontainer/, .tmp/, CLAUDE.md"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+
+  if ! "$SANDBOX_INIT" --only-skills "$target" >/dev/null 2>&1; then
+    fail "$name" "command failed"
+    teardown
+    return
+  fi
+
+  if [[ ! -d "$target/.claude/skills/review-plan" ]]; then
+    fail "$name" ".claude/skills/ not created"
+  elif [[ -d "$target/.devcontainer" ]]; then
+    fail "$name" ".devcontainer/ created (should be skipped)"
+  elif [[ -d "$target/.tmp" ]]; then
+    fail "$name" ".tmp/ created (should be skipped)"
+  elif [[ -f "$target/CLAUDE.md" ]]; then
+    fail "$name" "CLAUDE.md created (should be skipped)"
+  elif [[ ! -x "$target/.claude/skills/_lib/codex-exec.sh" ]]; then
+    fail "$name" "codex-exec.sh missing or not executable"
+  else
+    pass "$name"
+  fi
+
+  teardown
+}
+
+test_only_skills_preserves_custom_skill() {
+  local name="--only-skills refreshes bundled skills but preserves custom skills"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target/.claude/skills/custom-skill"
+  echo "USER CUSTOM" > "$target/.claude/skills/custom-skill/SKILL.md"
+  # Pretend the bundled review-plan was modified by the user previously
+  mkdir -p "$target/.claude/skills/review-plan"
+  echo "STALE" > "$target/.claude/skills/review-plan/SKILL.md"
+
+  if ! "$SANDBOX_INIT" --only-skills "$target" >/dev/null 2>&1; then
+    fail "$name" "command failed"
+    teardown
+    return
+  fi
+
+  if ! grep -q "USER CUSTOM" "$target/.claude/skills/custom-skill/SKILL.md"; then
+    fail "$name" "custom-skill was lost"
+  elif grep -q "^STALE$" "$target/.claude/skills/review-plan/SKILL.md"; then
+    fail "$name" "stale review-plan/SKILL.md was not refreshed"
+  else
+    pass "$name"
+  fi
+
+  teardown
+}
+
+test_only_skills_dry_run() {
+  local name="--only-skills --dry-run announces plan and creates nothing"
+  setup
+  local target="$TEST_DIR/project"
+  mkdir -p "$target"
+
+  local output
+  output=$("$SANDBOX_INIT" --only-skills --dry-run "$target" 2>&1) || { fail "$name" "non-zero exit"; teardown; return; }
+
+  if [[ -d "$target/.claude/skills" ]]; then
+    fail "$name" "dry-run created skills tree"
+  elif echo "$output" | grep -qE "Would (create|merge).*skills"; then
+    pass "$name"
+  else
+    fail "$name" "missing 'Would create/merge ... skills' line"
+  fi
+
+  teardown
+}
+
 test_skills_prompt_amp_backslash_safe() {
   local name="codex-exec.sh prompt assembly preserves & and \\ in body content"
   setup
@@ -884,6 +960,9 @@ test_skills_no_overwrite
 test_skills_dry_run
 test_skills_helper_executable
 test_skills_prompt_amp_backslash_safe
+test_only_skills_creates_tree_only
+test_only_skills_preserves_custom_skill
+test_only_skills_dry_run
 
 echo ""
 echo "Results: $TESTS_PASSED passed, $TESTS_FAILED failed, $TESTS_SKIPPED skipped"
