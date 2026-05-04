@@ -12,6 +12,11 @@ When working in this project, follow these conventions.
 
 - Never run `git push` (or any variant: `-u`, `--force`, `--all`, `--tags`, etc.) without explicit user approval for that specific push. An approval to push once is for that push only — it is not a standing license for the next one. Always confirm before pushing, even for small follow-ups, even when the user has just approved an adjacent commit or push.
 
+## Destructive filesystem and state operations
+
+- Never delete a whole project folder, repository clone, or other top-level working directory without explicit user approval — including via `rm -rf`. The same applies to other destructive operations whose effect can't be silently recovered: dropping database tables, force-deleting branches, force-pushing, etc.
+- When a user instruction like "revert", "undo", or "clean up" is ambiguous about whether it includes whole-directory deletion (or another destructive operation), default to the narrow interpretation. Ask before picking the destructive one.
+
 ## Python
 
 - Never use the system Python interpreter directly.
