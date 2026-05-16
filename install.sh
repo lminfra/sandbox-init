@@ -20,13 +20,82 @@ info() {
 # Parse flags
 USE_UPSTREAM=false
 DO_UNINSTALL=false
+DO_FETCH_BWRAP=true
 for arg in "$@"; do
   case "$arg" in
     --upstream) USE_UPSTREAM=true ;;
     --uninstall) DO_UNINSTALL=true ;;
-    *) die "Unknown option: $arg (supported: --upstream, --uninstall)" ;;
+    --no-fetch-bwrap) DO_FETCH_BWRAP=false ;;
+    *) die "Unknown option: $arg (supported: --upstream, --uninstall, --no-fetch-bwrap)" ;;
   esac
 done
+
+# Probe: does a bwrap binary at $1 actually work (can it create a namespace)?
+bwrap_ok() {
+  "$1" --ro-bind / / --unshare-all --die-with-parent true >/dev/null 2>&1
+}
+
+# Fetch a user-local bwrap binary (no root) so Codex's sandboxed review skills
+# can run `--sandbox read-only` instead of falling back to the unsandboxed
+# danger-full-access mode. Runs by default on every install; suppress with
+# --no-fetch-bwrap. Every failure path below is non-fatal (warns and returns):
+# the function only actually downloads when it both can help and can succeed
+# (Debian/Ubuntu, unprivileged user namespaces enabled, bwrap binary absent).
+fetch_bwrap() {
+  local dest="${INSTALL_DIR}/bwrap"
+
+  if command -v bwrap >/dev/null 2>&1 && bwrap_ok bwrap; then
+    info "bwrap already present and working — no provisioning needed"
+    return 0
+  fi
+
+  # If the kernel forbids unprivileged user namespaces, a bwrap binary would
+  # still fail — this is the un-fixable case, so don't bother downloading.
+  if ! unshare -Urm true >/dev/null 2>&1; then
+    echo ""
+    echo "WARNING: bwrap setup: unprivileged user namespaces are disabled on"
+    echo "this host (e.g. kernel.apparmor_restrict_unprivileged_userns=1), so a"
+    echo "bwrap binary would still fail. Skipping. Codex review falls back to"
+    echo "unsandboxed danger-full-access; set CODEX_SANDBOX_OVERRIDE to choose."
+    echo ""
+    return 0
+  fi
+
+  if ! command -v apt-get >/dev/null 2>&1 || ! command -v dpkg >/dev/null 2>&1; then
+    echo ""
+    echo "WARNING: bwrap setup needs apt-get + dpkg (Debian/Ubuntu). Skipping."
+    echo "Install bubblewrap via your platform's package manager instead."
+    echo ""
+    return 0
+  fi
+
+  info "Fetching a user-local bwrap binary (no root required)..."
+  local tmp
+  tmp="$(mktemp -d)"
+  if ! ( cd "$tmp" && apt-get download bubblewrap >/dev/null 2>&1 ); then
+    rm -rf "$tmp"
+    echo "WARNING: bwrap setup: 'apt-get download bubblewrap' failed. Skipping." >&2
+    return 0
+  fi
+  local deb
+  deb="$(find "$tmp" -maxdepth 1 -name 'bubblewrap_*.deb' | head -1 || true)"
+  if [[ -z "$deb" ]] || ! dpkg -x "$deb" "${tmp}/x" 2>/dev/null \
+     || [[ ! -f "${tmp}/x/usr/bin/bwrap" ]]; then
+    rm -rf "$tmp"
+    echo "WARNING: bwrap setup: could not extract bwrap from the package. Skipping." >&2
+    return 0
+  fi
+  cp "${tmp}/x/usr/bin/bwrap" "$dest"
+  chmod +x "$dest"
+  rm -rf "$tmp"
+
+  if bwrap_ok "$dest"; then
+    info "Installed working bwrap -> ${dest}"
+  else
+    echo "WARNING: bwrap setup: installed ${dest} but it failed a sandbox" >&2
+    echo "self-test; Codex review will fall back to danger-full-access." >&2
+  fi
+}
 
 # Handle uninstall
 if [[ "$DO_UNINSTALL" == true ]]; then
@@ -129,6 +198,12 @@ ln -sf "${INSTALL_DIR}/${SCRIPT_NAME}" "${INSTALL_DIR}/${SYMLINK_NAME}"
 # Cleanup temp file if remote install
 if [[ "$CLEANUP_SOURCE" == true ]]; then
   rm -f "$SOURCE"
+fi
+
+# Provision a user-local bwrap for Codex's sandboxed review modes (default on;
+# disable with --no-fetch-bwrap). No-op when bwrap already works or can't help.
+if [[ "$DO_FETCH_BWRAP" == true ]]; then
+  fetch_bwrap
 fi
 
 # Check devcontainer CLI

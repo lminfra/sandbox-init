@@ -50,6 +50,24 @@ require_codex() {
   fi
 }
 
+# True if a working bwrap is reachable: a `bwrap` binary on PATH that can
+# actually create a namespace. This single probe distinguishes the two ways
+# the sandboxed modes can fail — a missing/broken binary and kernel-disabled
+# unprivileged user namespaces both make it return false. The result is cached
+# because codex_isolation_flags() runs several times per invocation.
+_BWRAP_WORKS=""
+bwrap_works() {
+  if [[ -z "$_BWRAP_WORKS" ]]; then
+    if command -v bwrap >/dev/null 2>&1 \
+       && bwrap --ro-bind / / --unshare-all --die-with-parent true >/dev/null 2>&1; then
+      _BWRAP_WORKS=yes
+    else
+      _BWRAP_WORKS=no
+    fi
+  fi
+  [[ "$_BWRAP_WORKS" == yes ]]
+}
+
 # Decide which sandbox flags to pass to `codex exec`.
 #
 # Codex offers four isolation modes, three sandbox policies plus one bypass:
@@ -58,40 +76,46 @@ require_codex() {
 #   --sandbox danger-full-access  Codex's shell tool runs unrestricted, no bwrap wrap.
 #   --dangerously-bypass-approvals-and-sandbox  Skips both approvals and bwrap entirely.
 #
+# On Linux, Codex implements ALL three `--sandbox` policies by wrapping the
+# shell tool in bubblewrap (`bwrap`) — there is no Landlock/seccomp-only path.
+# A `--sandbox` policy therefore needs BOTH a working `bwrap` binary on PATH
+# AND unprivileged user namespaces enabled in the kernel. Either one missing
+# makes the sandboxed modes fail and Codex's read tool then produces nothing.
+# These are two distinct causes with different fixes:
+#   - missing/broken binary → install a user-local `bwrap` (no root needed when
+#     userns works; install.sh does this automatically on Debian/Ubuntu).
+#   - kernel-disabled userns (e.g. kernel.apparmor_restrict_unprivileged_userns=1)
+#     → no userspace fix; only the bwrap-skipping modes work.
+# `danger-full-access` and `--dangerously-bypass-approvals-and-sandbox` skip
+# the bwrap wrap entirely, so they work regardless — at the cost of running
+# Codex's shell tool unrestricted.
+#
 # Resolution order (first match wins):
 #   1. CODEX_SANDBOX_OVERRIDE env var — explicit user choice. Values:
 #        read-only | workspace-write | danger-full-access | bypass
 #   2. DEVCONTAINER=true (set by the bundled Dockerfile) → danger-full-access
-#   3. Default → danger-full-access
-#
-# Why `danger-full-access` (not bypass) for devcontainer auto-detection:
-#   The three `--sandbox` modes that wrap in bwrap require unprivileged user
-#   namespaces, which most container runtimes don't allow — so `--sandbox
-#   read-only` and `--sandbox workspace-write` fail with "bwrap: No permissions
-#   to create a new namespace" and Codex can read nothing. The `danger-full-access`
-#   mode skips the bwrap wrap, so it works in containers where bwrap is broken.
-#   This is the empirically-confirmed working flag inside our devcontainer.
-#   `--dangerously-bypass-approvals-and-sandbox` *also* skips bwrap and is
-#   semantically equivalent for review-only invocations, but pinning a specific
-#   `--sandbox` policy is more explicit about what permissions Codex's shell
-#   tool gets, so we prefer it.
+#   3. Default → adaptive: read-only when a working bwrap is detected, else
+#        danger-full-access (with a warning).
 #
 # Inside our devcontainer the security boundary is already the firewall +
 # bind-mounted workspace + per-project isolation; the inner bwrap layer is
 # redundant defense, not load-bearing. The blast radius if Codex is prompt-
 # injected is identical to Claude Code's own (which already runs with
-# --dangerously-skip-permissions in the same container).
+# --dangerously-skip-permissions in the same container). Outside a
+# devcontainer there is no such boundary, so we prefer a real bwrap sandbox
+# whenever the host can provide one.
 codex_isolation_flags() {
   local mode
   if [[ -n "${CODEX_SANDBOX_OVERRIDE:-}" ]]; then
     mode="$CODEX_SANDBOX_OVERRIDE"
   elif [[ "${DEVCONTAINER:-}" == "true" ]]; then
     mode="danger-full-access"
+  elif bwrap_works; then
+    # No devcontainer boundary here — prefer a real sandbox when the host
+    # can run one.
+    mode="read-only"
   else
-    # Many hosts disable unprivileged user namespaces (e.g. AppArmor's
-    # kernel.apparmor_restrict_unprivileged_userns=1), so the bwrap-wrapped
-    # modes make Codex's read tool fail silently. danger-full-access skips the
-    # bwrap wrap. Override with CODEX_SANDBOX_OVERRIDE=read-only|workspace-write|bypass.
+    warn "bwrap unavailable (missing binary or kernel-disabled user namespaces) — falling back to unsandboxed danger-full-access; install bwrap or set CODEX_SANDBOX_OVERRIDE"
     mode="danger-full-access"
   fi
 
