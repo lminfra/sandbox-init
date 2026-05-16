@@ -62,7 +62,7 @@ require_codex() {
 #   1. CODEX_SANDBOX_OVERRIDE env var — explicit user choice. Values:
 #        read-only | workspace-write | danger-full-access | bypass
 #   2. DEVCONTAINER=true (set by the bundled Dockerfile) → danger-full-access
-#   3. Default → read-only
+#   3. Default → danger-full-access
 #
 # Why `danger-full-access` (not bypass) for devcontainer auto-detection:
 #   The three `--sandbox` modes that wrap in bwrap require unprivileged user
@@ -88,15 +88,19 @@ codex_isolation_flags() {
   elif [[ "${DEVCONTAINER:-}" == "true" ]]; then
     mode="danger-full-access"
   else
-    mode="read-only"
+    # Many hosts disable unprivileged user namespaces (e.g. AppArmor's
+    # kernel.apparmor_restrict_unprivileged_userns=1), so the bwrap-wrapped
+    # modes make Codex's read tool fail silently. danger-full-access skips the
+    # bwrap wrap. Override with CODEX_SANDBOX_OVERRIDE=read-only|workspace-write|bypass.
+    mode="danger-full-access"
   fi
 
   case "$mode" in
     read-only|workspace-write|danger-full-access)
-      printf '%s\0%s\0%s\0' "--sandbox" "$mode" "--skip-git-repo-check"
+      printf '%s\n%s\n%s\n' "--sandbox" "$mode" "--skip-git-repo-check"
       ;;
     bypass)
-      printf '%s\0%s\0' "--dangerously-bypass-approvals-and-sandbox" "--skip-git-repo-check"
+      printf '%s\n%s\n' "--dangerously-bypass-approvals-and-sandbox" "--skip-git-repo-check"
       ;;
     *)
       die "invalid CODEX_SANDBOX_OVERRIDE='$mode' (expected: read-only | workspace-write | danger-full-access | bypass)"
@@ -104,14 +108,16 @@ codex_isolation_flags() {
   esac
 }
 
-# Read codex_isolation_flags into a bash array (NUL-separated, robust to spaces).
+# Read codex_isolation_flags into a bash array (newline-separated; each flag
+# token is a single word with no spaces or newlines). NUL separation cannot
+# survive the $(...) capture this used to use — command substitution strips
+# NUL bytes — which left the array empty.
 read_isolation_flags() {
-  local raw
-  raw=$(codex_isolation_flags)
+  local f
   ISOLATION_FLAGS=()
-  while IFS= read -r -d '' f; do
-    ISOLATION_FLAGS+=("$f")
-  done < <(printf '%s' "$raw")
+  while IFS= read -r f; do
+    [[ -n "$f" ]] && ISOLATION_FLAGS+=("$f")
+  done < <(codex_isolation_flags)
 }
 
 ack_preflight() {
